@@ -11,13 +11,18 @@ dependencies = [
 [project.optional-dependencies]
 colab = [
   "faiss-cpu",
-  "sentence-transformers",
+  "numpy",
+  "sentence-transformers>=2.7.0",
+  "transformers>=4.51.0",
   "pytanque @ git+https://github.com/llm4rocq/pytanque.git",
   "rocq-ml-toolbox[client] @ git+https://github.com/llm4rocq/rocq-ml-toolbox.git",
 ]
 retrieval = [
+  "datasets",
   "faiss-cpu",
-  "sentence-transformers",
+  "numpy",
+  "sentence-transformers>=2.7.0",
+  "transformers>=4.51.0",
 ]
 toolbox-client = [
   "rocq-ml-toolbox[client] @ git+https://github.com/llm4rocq/rocq-ml-toolbox.git",

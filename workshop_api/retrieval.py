@@ -2,79 +2,126 @@ from __future__ import annotations
 
 import json
 import os
-import re
 import shutil
 import sys
 import zipfile
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Sequence
 
 import requests
 
 
-FALLBACK_DOC_HINTS: list[dict[str, str]] = [
-    {
-        "name": "is_RInt_derive",
-        "library": "Coquelicot",
-        "statement": "If F has derivative f on an interval and f is continuous, then RInt f a b = F b - F a.",
-        "docstring": "Fundamental theorem of calculus for Coquelicot integrals.",
-    },
-    {
-        "name": "is_RInt_unique",
-        "library": "Coquelicot",
-        "statement": "Turn an is_RInt witness into equality with RInt.",
-        "docstring": "Uniqueness principle for the Coquelicot RInt operator.",
-    },
-    {
-        "name": "is_derive_plus",
-        "library": "Coquelicot",
-        "statement": "Derivative rule for a sum of two functions.",
-        "docstring": "Use when proving that the derivative of F + G is f + g.",
-    },
-    {
-        "name": "ex_derive_continuous",
-        "library": "Coquelicot",
-        "statement": "Differentiability implies continuity.",
-        "docstring": "Useful bridge from ex_derive goals to continuous goals.",
-    },
-    {
-        "name": "is_derive_unique",
-        "library": "Coquelicot",
-        "statement": "The derivative computed by Derive is equal to a known is_derive value.",
-        "docstring": "Often used after auto_derive introduces Derive terms.",
-    },
-    {
-        "name": "auto_derive",
-        "library": "Coquelicot",
-        "statement": "Tactic for symbolic differentiation of real expressions.",
-        "docstring": "Produces side conditions such as non-zero denominators.",
-    },
-    {
-        "name": "field_simplify",
-        "library": "Stdlib",
-        "statement": "Simplify rational field expressions under non-zero side conditions.",
-        "docstring": "Useful after unfolding definitions built from divisions.",
-    },
-    {
-        "name": "ring",
-        "library": "Stdlib",
-        "statement": "Solve polynomial/ring equalities.",
-        "docstring": "Useful for algebraic cleanup after rewriting.",
-    },
-    {
-        "name": "exp_plus",
-        "library": "Stdlib",
-        "statement": "exp (x + y) = exp x * exp y.",
-        "docstring": "Needed to relate exp (2*u) and exp u squared.",
-    },
-    {
-        "name": "exp_pos",
-        "library": "Stdlib",
-        "statement": "0 < exp x.",
-        "docstring": "Positivity fact for exponential denominators.",
-    },
-]
+DEFAULT_EMBEDDING_MODEL = "Qwen/Qwen3-Embedding-4B"
+
+
+def _normalize_library_name(name: str) -> str:
+    key = name.strip().lower()
+    aliases = {
+        "coq": "Stdlib",
+        "coq-stdlib": "Stdlib",
+        "corelib": "Stdlib",
+        "bignums": "Stdlib",
+        "stdlib": "Stdlib",
+        "std": "Stdlib",
+        "coquelicot": "Coquelicot",
+        "mathcomp": "MathComp",
+        "math-comp": "MathComp",
+    }
+    return aliases.get(key, name.strip())
+
+
+def _normalize_libraries(value: str | Sequence[str] | None) -> set[str] | None:
+    if value is None:
+        return None
+    raw_values = [value] if isinstance(value, str) else list(value)
+    out: set[str] = set()
+    for item in raw_values:
+        for raw in str(item).split(","):
+            raw = raw.strip()
+            if raw:
+                out.add(_normalize_library_name(raw))
+    return out or None
+
+
+def _normalize_kinds(value: str | Sequence[str] | None) -> set[str] | None:
+    if value is None:
+        return None
+    raw_values = [value] if isinstance(value, str) else list(value)
+    out: set[str] = set()
+    for item in raw_values:
+        for raw in str(item).split(","):
+            raw = raw.strip().lower()
+            if raw:
+                out.add(raw)
+    return out or None
+
+
+def _library_matches(item: dict[str, Any], libraries: set[str] | None) -> bool:
+    if libraries is None:
+        return True
+    library = item.get("library")
+    if not isinstance(library, str) or not library.strip():
+        return False
+    return _normalize_library_name(library) in libraries
+
+
+def _kind_matches(item: dict[str, Any], kinds: set[str] | None) -> bool:
+    if kinds is None:
+        return True
+    kind = item.get("kind")
+    if not isinstance(kind, str) or not kind.strip():
+        return False
+    return kind.strip().lower() in kinds
+
+
+def _shorten(text: object, *, limit: int) -> str:
+    raw = " ".join(str(text or "").split())
+    if len(raw) <= limit:
+        return raw
+    return raw[: max(limit - 3, 0)].rstrip() + "..."
+
+
+def format_retrieval_hits(
+    hits: list[dict[str, Any]],
+    *,
+    statement_chars: int = 500,
+    docstring_chars: int = 260,
+) -> str:
+    """Render retrieval hits as workshop-friendly plain text."""
+
+    if not hits:
+        return "No retrieval hits."
+
+    lines: list[str] = []
+    for index, hit in enumerate(hits, start=1):
+        name = hit.get("name") or hit.get("uid") or "<unnamed>"
+        kind = hit.get("kind")
+        library = hit.get("library")
+        source = hit.get("source")
+        score = hit.get("score")
+        heading_parts = [f"{index}. {name}"]
+        if kind:
+            heading_parts.append(f"({kind})")
+        if score is not None:
+            try:
+                heading_parts.append(f"[score {float(score):.3f}]")
+            except (TypeError, ValueError):
+                heading_parts.append(f"[score {score}]")
+        lines.append(" ".join(heading_parts))
+        if library:
+            lines.append(f"   library: {_shorten(library, limit=80)}")
+        if source:
+            lines.append(f"   source: {_shorten(source, limit=140)}")
+
+        statement = hit.get("statement") or hit.get("content")
+        if statement:
+            lines.append(f"   statement: {_shorten(statement, limit=statement_chars)}")
+
+        docstring = hit.get("docstring")
+        if docstring:
+            lines.append(f"   docstring: {_shorten(docstring, limit=docstring_chars)}")
+    return "\n".join(lines)
 
 
 def _default_cache_parent() -> Path:
@@ -203,7 +250,8 @@ class LocalFaissRetriever:
         except Exception as exc:  # pragma: no cover - dependency error path.
             raise RuntimeError(
                 "Local retrieval requires `faiss-cpu`, `numpy`, and `sentence-transformers`. "
-                "In Colab, run: `pip install -q faiss-cpu sentence-transformers`."
+                "In Colab, install `integral-tp[colab]`, or run: "
+                "`pip install -q faiss-cpu 'sentence-transformers>=2.7.0' 'transformers>=4.51.0'`."
             ) from exc
 
         self._faiss = faiss
@@ -211,16 +259,23 @@ class LocalFaissRetriever:
         self.cache_dir = _resolve_cache_dir(Path(self.cache_dir))
         manifest_path = self.cache_dir / "manifest.json"
         metadata_path = self.cache_dir / "metadata.jsonl"
-        index_path = self.cache_dir / "index.faiss"
-        if not manifest_path.exists() or not metadata_path.exists() or not index_path.exists():
+        if not manifest_path.exists() or not metadata_path.exists():
             raise FileNotFoundError(
                 f"Invalid retrieval cache at {self.cache_dir}; expected manifest.json, "
-                "metadata.jsonl, and index.faiss."
+                "metadata.jsonl, and the manifest index file."
             )
         self.manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-        self.model_name = self.model_name or self.manifest.get("model_name")
-        if not self.model_name:
-            raise ValueError("No embedding model name found in manifest or constructor.")
+        index_path = self.cache_dir / str(self.manifest.get("index_file", "index.faiss"))
+        if not index_path.exists():
+            raise FileNotFoundError(f"Retrieval cache manifest points to missing index file: {index_path}")
+        manifest_model = self.manifest.get("model_name")
+        if self.model_name and manifest_model and self.model_name != manifest_model:
+            raise ValueError(
+                f"Embedding model mismatch: cache manifest uses {manifest_model!r}, "
+                f"but query model was set to {self.model_name!r}."
+            )
+        self.model_name = self.model_name or manifest_model or DEFAULT_EMBEDDING_MODEL
+        self.query_prompt_name = self.manifest.get("query_prompt_name")
         self.metadata = [
             json.loads(line)
             for line in metadata_path.read_text(encoding="utf-8").splitlines()
@@ -234,23 +289,42 @@ class LocalFaissRetriever:
             )
         self.model = SentenceTransformer(self.model_name)
 
-    def search(self, query: str, *, k: int = 8) -> list[dict[str, Any]]:
+    def search(
+        self,
+        query: str,
+        *,
+        k: int = 8,
+        library: str | Sequence[str] | None = None,
+        kind: str | Sequence[str] | None = None,
+    ) -> list[dict[str, Any]]:
         query = query.strip()
-        if not query:
+        k = int(k)
+        if not query or k <= 0:
             return []
+        libraries = _normalize_libraries(library)
+        kinds = _normalize_kinds(kind)
+        encode_kwargs: dict[str, Any] = {}
+        if isinstance(self.query_prompt_name, str) and self.query_prompt_name.strip():
+            encode_kwargs["prompt_name"] = self.query_prompt_name
         vector = self.model.encode(
             [query],
             convert_to_numpy=True,
             normalize_embeddings=bool(self.manifest.get("normalize_embeddings", True)),
             show_progress_bar=False,
+            **encode_kwargs,
         ).astype("float32")
-        scores, ids = self.index.search(vector, max(int(k) * self.top_k_multiplier, int(k)))
+        search_k = self.index.ntotal if libraries is not None or kinds is not None else max(k * self.top_k_multiplier, k)
+        scores, ids = self.index.search(vector, min(int(search_k), int(self.index.ntotal)))
         out: list[dict[str, Any]] = []
         seen: set[str] = set()
         for score, idx in zip(scores[0], ids[0], strict=False):
             if idx < 0:
                 continue
             item = dict(self.metadata[int(idx)])
+            if not _library_matches(item, libraries):
+                continue
+            if not _kind_matches(item, kinds):
+                continue
             key = str(item.get("uid") or (item.get("source"), item.get("name"), item.get("content")))
             if key in seen:
                 continue
@@ -264,23 +338,21 @@ class LocalFaissRetriever:
 
 @dataclass
 class RetrievalClient:
-    """Docstring retrieval hook.
+    """Local FAISS docstring retriever.
 
-    Resolution order:
-    1. local FAISS cache (`cache_dir` or downloadable `cache_url`);
-    2. remote semantic search service (`base_url`);
-    3. tiny lexical fallback so the notebook remains runnable.
+    The client never calls a remote semantic service and has no lexical
+    fallback. Configure either `cache_dir` or `cache_url`; otherwise the first
+    search raises a clear setup error. Pass `library="Stdlib"` or
+    `library="Coquelicot"` to restrict matches to one source library. Pass
+    `kind="definition"` or `kind=["definition", "start_theorem_proof"]` to
+    restrict matches by Rocq element kind.
     """
 
-    base_url: str | None = None
-    env: str = "stdlib-coquelicot"
-    route: str = "/search"
-    api_key: str | None = None
-    timeout: float = 30.0
     cache_dir: str | Path | None = None
     cache_url: str | None = None
     model_name: str | None = None
-    fallback_entries: list[dict[str, str]] = field(default_factory=lambda: list(FALLBACK_DOC_HINTS))
+    libraries: str | Sequence[str] | None = None
+    kinds: str | Sequence[str] | None = None
     _local: LocalFaissRetriever | None = field(default=None, init=False, repr=False)
 
     @classmethod
@@ -294,56 +366,37 @@ class RetrievalClient:
             cache_url=cache_url or os.getenv("DOCSTRING_CACHE_URL") or None,
             cache_dir=cache_dir or os.getenv("DOCSTRING_CACHE_DIR") or None,
             model_name=os.getenv("DOCSTRING_EMBEDDING_MODEL") or None,
-            base_url=os.getenv("DOCSTRING_SEARCH_BASE_URL") or None,
-            route=os.getenv("DOCSTRING_SEARCH_ROUTE", "/search"),
-            api_key=os.getenv("DOCSTRING_SEARCH_API_KEY") or None,
-            env=os.getenv("DOCSTRING_SEARCH_ENV", "stdlib-coquelicot"),
+            libraries=os.getenv("DOCSTRING_LIBRARIES") or None,
+            kinds=os.getenv("DOCSTRING_KINDS") or None,
         )
 
-    def _local_retriever(self) -> LocalFaissRetriever | None:
+    def _local_retriever(self) -> LocalFaissRetriever:
         if self._local is not None:
             return self._local
         cache_dir = self.cache_dir
         if cache_dir is None and self.cache_url:
             cache_dir = download_retrieval_cache(self.cache_url)
         if cache_dir is None:
-            return None
+            raise ValueError(
+                "Local retrieval cache is not configured. Set DOCSTRING_CACHE_URL "
+                "to a direct retrieval_cache.zip URL, set DOCSTRING_CACHE_DIR to an "
+                "unpacked cache directory, or pass cache_url/cache_dir explicitly."
+            )
         self._local = LocalFaissRetriever(cache_dir=cache_dir, model_name=self.model_name)
         return self._local
 
-    def search(self, query: str, *, k: int = 8) -> list[dict[str, Any]]:
+    def search(
+        self,
+        query: str,
+        *,
+        k: int = 8,
+        library: str | Sequence[str] | None = None,
+        kind: str | Sequence[str] | None = None,
+    ) -> list[dict[str, Any]]:
         query = query.strip()
         if not query:
             return []
 
-        local = self._local_retriever()
-        if local is not None:
-            return local.search(query, k=k)
-
-        if self.base_url:
-            url = self.base_url.rstrip("/") + "/" + self.route.lstrip("/")
-            headers = {"Content-Type": "application/json"}
-            if self.api_key:
-                headers["Authorization"] = f"Bearer {self.api_key}"
-            response = requests.post(
-                url,
-                json={"query": query, "env": self.env, "k": int(k)},
-                headers=headers,
-                timeout=self.timeout,
-            )
-            response.raise_for_status()
-            payload = response.json()
-            results = payload.get("results", payload) if isinstance(payload, dict) else payload
-            if not isinstance(results, list):
-                raise ValueError("Retrieval response must be a list or contain a `results` list.")
-            return [item for item in results if isinstance(item, dict)][:k]
-
-        tokens = {tok for tok in re.findall(r"[A-Za-z_][A-Za-z0-9_']*", query.lower()) if len(tok) > 2}
-        scored: list[tuple[int, dict[str, str]]] = []
-        for entry in self.fallback_entries:
-            haystack = " ".join(str(value).lower() for value in entry.values())
-            score = sum(1 for tok in tokens if tok in haystack)
-            if score:
-                scored.append((score, entry))
-        scored.sort(key=lambda item: (-item[0], item[1]["name"]))
-        return [dict(entry, score=score) for score, entry in scored[:k]]
+        active_library = library if library is not None else self.libraries
+        active_kind = kind if kind is not None else self.kinds
+        return self._local_retriever().search(query, k=k, library=active_library, kind=active_kind)

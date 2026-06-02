@@ -11,7 +11,9 @@ dependencies = [
 [project.optional-dependencies]
 colab = [
   "faiss-cpu",
+  "ipywidgets>=8.0.0",
   "numpy",
+  "pygments",
   "sentence-transformers>=2.7.0",
   "transformers>=4.51.0",
   "pytanque @ git+https://github.com/llm4rocq/pytanque.git",

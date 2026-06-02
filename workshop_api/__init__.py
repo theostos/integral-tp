@@ -8,12 +8,14 @@ from .retrieval import (
     prepare_colab_retrieval_cache,
 )
 from .rocq import LemmaSession, RocqWorkshop, StateNode
+from .widgets import RetrievalExplorer
 
 __all__ = [
     "DEFAULT_EMBEDDING_MODEL",
     "LLMClient",
     "LocalFaissRetriever",
     "RetrievalClient",
+    "RetrievalExplorer",
     "LemmaSession",
     "RocqWorkshop",
     "StateNode",

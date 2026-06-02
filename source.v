@@ -1,4 +1,4 @@
-From Coq Require Import Reals Lra Psatz.
+From Stdlib Require Import Reals Lra Psatz.
 From Coquelicot Require Import Coquelicot.
 From Interval Require Import Tactic.
 

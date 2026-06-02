@@ -1,0 +1,29 @@
+[project]
+name = "integral-tp"
+version = "0.1.0"
+description = "Colab workshop helpers for certified numerical analysis with Rocq."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "requests",
+]
+
+[project.optional-dependencies]
+colab = [
+  "faiss-cpu",
+  "sentence-transformers",
+  "pytanque @ git+https://github.com/llm4rocq/pytanque.git",
+  "rocq-ml-toolbox @ git+https://github.com/theostos/rocq-ml-toolbox.git",
+]
+retrieval = [
+  "faiss-cpu",
+  "sentence-transformers",
+]
+
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["workshop_api*"]

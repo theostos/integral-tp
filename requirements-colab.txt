@@ -1,0 +1,1 @@
+integral-tp[colab] @ git+https://github.com/theostos/integral-tp.git

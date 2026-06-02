@@ -31,6 +31,16 @@ The install spec used by default is:
 integral-tp[colab] @ git+https://github.com/theostos/integral-tp.git
 ```
 
+When running it manually in Colab, quote the PEP 508 requirement:
+
+```python
+%pip install -q "integral-tp[colab] @ git+https://github.com/theostos/integral-tp.git"
+```
+
+The `colab` extra depends on `rocq-ml-toolbox[client]` from the public
+`llm4rocq/rocq-ml-toolbox` repository, plus public `pytanque` and retrieval
+packages. The Rocq server stack still comes from the Docker image.
+
 For a branch, fork, or local development variant, set
 `INTEGRAL_TP_INSTALL_SPEC` before the import/setup cell. Set
 `ROCQ_DOCKER_IMAGE` to override the Docker image.

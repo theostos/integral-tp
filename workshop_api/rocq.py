@@ -6,11 +6,49 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable
 
+import requests
+
 try:
     from rocq_ml_toolbox.inference.client import PytanqueExtended
 except Exception as exc:  # pragma: no cover - exercised in notebooks.
-    PytanqueExtended = None  # type: ignore[assignment]
-    _IMPORT_ERROR = exc
+    try:
+        from pytanque import Pytanque, PytanqueMode
+    except Exception as pytanque_exc:  # pragma: no cover - dependency error path.
+        PytanqueExtended = None  # type: ignore[assignment]
+        _IMPORT_ERROR = pytanque_exc
+    else:
+
+        class PytanqueExtended(Pytanque):  # type: ignore[no-redef]
+            """Minimal local client for the Dockerized rocq-ml-server.
+
+            The full `rocq_ml_toolbox.inference.client.PytanqueExtended` is
+            still used when installed. Colab only needs a small subset of its
+            file API, so this fallback avoids requiring a private toolbox clone.
+            """
+
+            def __init__(self, host: str, port: int):
+                super().__init__(host=host, port=port, mode=PytanqueMode.HTTP)
+
+            def _post_json(self, endpoint: str, payload: dict[str, Any]) -> Any:
+                url = f"http://{self.host}:{self.port}/{endpoint.lstrip('/')}"
+                response = requests.post(url, json=payload)
+                response.raise_for_status()
+                return response.json()
+
+            def tmp_file(
+                self,
+                content: str | None = None,
+                root: str | Path | None = None,
+            ) -> str:
+                result = self._post_json(
+                    "tmp_file",
+                    {"content": content, "root": None if root is None else str(root)},
+                )
+                if not isinstance(result, dict) or not isinstance(result.get("path"), str):
+                    raise ValueError("Invalid response from /tmp_file: missing string `path`.")
+                return result["path"]
+
+        _IMPORT_ERROR = exc
 else:
     _IMPORT_ERROR = None
 
@@ -115,8 +153,8 @@ class RocqWorkshop:
     ):
         if PytanqueExtended is None:
             raise RuntimeError(
-                "Could not import rocq_ml_toolbox.inference.client.PytanqueExtended. "
-                "Install rocq-ml-toolbox or add its `src` directory to sys.path."
+                "Could not import rocq_ml_toolbox or public pytanque. "
+                "Install `integral-tp[colab]` or install pytanque manually."
             ) from _IMPORT_ERROR
         self.client = PytanqueExtended(host, port)
         if connect:

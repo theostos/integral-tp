@@ -13,11 +13,14 @@ colab = [
   "faiss-cpu",
   "sentence-transformers",
   "pytanque @ git+https://github.com/llm4rocq/pytanque.git",
-  "rocq-ml-toolbox @ git+https://github.com/theostos/rocq-ml-toolbox.git",
+  "rocq-ml-toolbox[client] @ git+https://github.com/llm4rocq/rocq-ml-toolbox.git",
 ]
 retrieval = [
   "faiss-cpu",
   "sentence-transformers",
+]
+toolbox-client = [
+  "rocq-ml-toolbox[client] @ git+https://github.com/llm4rocq/rocq-ml-toolbox.git",
 ]
 
 [build-system]

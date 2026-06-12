@@ -81,7 +81,7 @@ def prepare_f2_case(task_id: int, *, host: str, port: int, timeout: float) -> tu
         """Lemma F2_derivative (x : R) :
   is_derive F2 x ((sech (10 * x - 2)) ^ 2)."""
     )
-    assert f2.run_tac("unfold F2, A2, sech, tanhE.")["ok"]
+    assert f2.run_tac("unfold F2, A2, sech, tanh_exp.")["ok"]
     assert f2.run_tac("auto_derive.")["ok"]
     f2.checkpoint("after_auto_derive")
 

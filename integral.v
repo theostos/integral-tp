@@ -28,17 +28,17 @@ Qed.
 (************************************************************)
 
 
-Definition tanhE (u : R) : R :=
+Definition tanh_exp (u : R) : R :=
   (exp (2 * u) - 1) / (exp (2 * u) + 1).
 
 Definition A2 (u : R) : R :=
-  tanhE u.
+  tanh_exp u.
 
 Definition A4 (u : R) : R :=
-  tanhE u - (/ 3) * (tanhE u)^3.
+  tanh_exp u - (/ 3) * (tanh_exp u)^3.
 
 Definition A6 (u : R) : R :=
-  tanhE u - (2 / 3) * (tanhE u)^3 + (/ 5) * (tanhE u)^5.
+  tanh_exp u - (2 / 3) * (tanh_exp u)^3 + (/ 5) * (tanh_exp u)^5.
 
 Definition F2 (x : R) : R :=
   A2 (10 * x - 2) / 10.
@@ -67,7 +67,7 @@ Qed.
 Lemma F2_derivative (x : R) :
   is_derive F2 x ((sech (10 * x - 2)) ^ 2).
 Proof.
-  unfold F2, A2, sech, tanhE.
+  unfold F2, A2, sech, tanh_exp.
   auto_derive.
 simpl.
 apply sech_denominator_nonzero.
@@ -81,7 +81,7 @@ Qed.
 Lemma F4_derivative (x : R) :
   is_derive F4 x ((sech (100 * x - 40)) ^ 4).
 Proof.
-  unfold F4, A4, sech, tanhE.
+  unfold F4, A4, sech, tanh_exp.
   auto_derive.
   - repeat split.
     - apply sech_denominator_nonzero.
@@ -97,7 +97,7 @@ Qed.
 Lemma F6_derivative (x : R) :
   is_derive F6 x ((sech (1000 * x - 600)) ^ 6).
 Proof.
-  unfold F6, A6, sech, tanhE.
+  unfold F6, A6, sech, tanh_exp.
   auto_derive.
   repeat split.
   apply sech_denominator_nonzero.

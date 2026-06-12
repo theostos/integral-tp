@@ -45,20 +45,20 @@ def build_analytic_doc(host: str, port: int, timeout: float):
     )
     doc.add_definition("Definition I : R := RInt f 0 1.")
     doc.add_definition(
-        """Definition tanhE (u : R) : R :=
+        """Definition tanh_exp (u : R) : R :=
   (exp (2 * u) - 1) / (exp (2 * u) + 1)."""
     )
     doc.add_definition(
         """Definition A2 (u : R) : R :=
-  tanhE u."""
+  tanh_exp u."""
     )
     doc.add_definition(
         """Definition A4 (u : R) : R :=
-  tanhE u - (/ 3) * (tanhE u)^3."""
+  tanh_exp u - (/ 3) * (tanh_exp u)^3."""
     )
     doc.add_definition(
         """Definition A6 (u : R) : R :=
-  tanhE u - (2 / 3) * (tanhE u)^3 + (/ 5) * (tanhE u)^5."""
+  tanh_exp u - (2 / 3) * (tanh_exp u)^3 + (/ 5) * (tanh_exp u)^5."""
     )
     doc.add_definition(
         """Definition F2 (x : R) : R :=
@@ -90,7 +90,7 @@ def run_analytic_api(host: str, port: int, timeout: float) -> None:
         """Lemma F2_derivative (x : R) :
   is_derive F2 x ((sech (10 * x - 2)) ^ 2)."""
     )
-    assert f2.run_tac("unfold F2, A2, sech, tanhE.")["ok"]
+    assert f2.run_tac("unfold F2, A2, sech, tanh_exp.")["ok"]
     assert f2.run_tac("auto_derive.")["ok"]
     f2.checkpoint("after_auto_derive")
 
@@ -128,7 +128,7 @@ def run_analytic_api(host: str, port: int, timeout: float) -> None:
         """Lemma F4_derivative (x : R) :
   is_derive F4 x ((sech (100 * x - 40)) ^ 4)."""
     )
-    assert f4.run_tac("unfold F4, A4, sech, tanhE.")["ok"]
+    assert f4.run_tac("unfold F4, A4, sech, tanh_exp.")["ok"]
     assert f4.run_tac("auto_derive.")["ok"]
     prove_by(
         f4,
@@ -149,7 +149,7 @@ def run_analytic_api(host: str, port: int, timeout: float) -> None:
         """Lemma F6_derivative (x : R) :
   is_derive F6 x ((sech (1000 * x - 600)) ^ 6)."""
     )
-    assert f6.run_tac("unfold F6, A6, sech, tanhE.")["ok"]
+    assert f6.run_tac("unfold F6, A6, sech, tanh_exp.")["ok"]
     assert f6.run_tac("auto_derive.")["ok"]
     prove_by(
         f6,
@@ -266,7 +266,7 @@ def run_section5_f2_llm(
             """Lemma F2_derivative (x : R) :
   is_derive F2 x ((sech (10 * x - 2)) ^ 2)."""
         )
-        assert f2.run_tac("unfold F2, A2, sech, tanhE.")["ok"]
+        assert f2.run_tac("unfold F2, A2, sech, tanh_exp.")["ok"]
         assert f2.run_tac("auto_derive.")["ok"]
         f2.checkpoint("after_auto_derive")
 

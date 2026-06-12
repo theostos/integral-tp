@@ -90,7 +90,7 @@ def add_f2(doc: Any, denominator: Any) -> Any:
         """Lemma F2_derivative (x : R) :
   is_derive F2 x ((sech (10 * x - 2)) ^ 2)."""
     )
-    assert theorem.run_tac("unfold F2, A2, sech, tanhE.")["ok"]
+    assert theorem.run_tac("unfold F2, A2, sech, tanh_exp.")["ok"]
     assert theorem.run_tac("auto_derive.")["ok"]
     prove_by(
         theorem,
@@ -111,7 +111,7 @@ def add_f4(doc: Any, denominator: Any) -> Any:
         """Lemma F4_derivative (x : R) :
   is_derive F4 x ((sech (100 * x - 40)) ^ 4)."""
     )
-    assert theorem.run_tac("unfold F4, A4, sech, tanhE.")["ok"]
+    assert theorem.run_tac("unfold F4, A4, sech, tanh_exp.")["ok"]
     assert theorem.run_tac("auto_derive.")["ok"]
     prove_by(
         theorem,
@@ -135,7 +135,7 @@ def add_f6(doc: Any, denominator: Any) -> Any:
         """Lemma F6_derivative (x : R) :
   is_derive F6 x ((sech (1000 * x - 600)) ^ 6)."""
     )
-    assert theorem.run_tac("unfold F6, A6, sech, tanhE.")["ok"]
+    assert theorem.run_tac("unfold F6, A6, sech, tanh_exp.")["ok"]
     assert theorem.run_tac("auto_derive.")["ok"]
     prove_by(
         theorem,
@@ -220,7 +220,7 @@ def setup_f2(doc: Any) -> tuple[Any, list[dict[str, Any]], str]:
         """Lemma F2_derivative (x : R) :
   is_derive F2 x ((sech (10 * x - 2)) ^ 2)."""
     )
-    assert theorem.run_tac("unfold F2, A2, sech, tanhE.")["ok"]
+    assert theorem.run_tac("unfold F2, A2, sech, tanh_exp.")["ok"]
     assert theorem.run_tac("auto_derive.")["ok"]
     theorem.checkpoint("after_auto_derive")
     denominator = add_denominator(doc)
@@ -235,7 +235,7 @@ def setup_f4(doc: Any) -> tuple[Any, list[dict[str, Any]], str]:
         """Lemma F4_derivative (x : R) :
   is_derive F4 x ((sech (100 * x - 40)) ^ 4)."""
     )
-    assert theorem.run_tac("unfold F4, A4, sech, tanhE.")["ok"]
+    assert theorem.run_tac("unfold F4, A4, sech, tanh_exp.")["ok"]
     assert theorem.run_tac("auto_derive.")["ok"]
     context = (
         "Mathematically this is the same calculation as the power-2 "
@@ -253,7 +253,7 @@ def setup_f6(doc: Any) -> tuple[Any, list[dict[str, Any]], str]:
         """Lemma F6_derivative (x : R) :
   is_derive F6 x ((sech (1000 * x - 600)) ^ 6)."""
     )
-    assert theorem.run_tac("unfold F6, A6, sech, tanhE.")["ok"]
+    assert theorem.run_tac("unfold F6, A6, sech, tanh_exp.")["ok"]
     assert theorem.run_tac("auto_derive.")["ok"]
     context = (
         "Mathematically this is the same calculation as the previous even "

@@ -217,7 +217,7 @@ def run_full_tp_llm(
             """Lemma F2_derivative (x : R) :
   is_derive F2 x ((sech (10 * x - 2)) ^ 2)."""
         )
-        assert f2.run_tac("unfold F2, A2, sech, tanhE.")["ok"]
+        assert f2.run_tac("unfold F2, A2, sech, tanh_exp.")["ok"]
         assert f2.run_tac("auto_derive.")["ok"]
         f2.checkpoint("after_auto_derive")
 
@@ -271,7 +271,7 @@ def run_full_tp_llm(
             """Lemma F4_derivative (x : R) :
   is_derive F4 x ((sech (100 * x - 40)) ^ 4)."""
         )
-        assert f4.run_tac("unfold F4, A4, sech, tanhE.")["ok"]
+        assert f4.run_tac("unfold F4, A4, sech, tanh_exp.")["ok"]
         assert f4.run_tac("auto_derive.")["ok"]
         steps.append(
             prove_with_tools(
@@ -299,7 +299,7 @@ def run_full_tp_llm(
             """Lemma F6_derivative (x : R) :
   is_derive F6 x ((sech (1000 * x - 600)) ^ 6)."""
         )
-        assert f6.run_tac("unfold F6, A6, sech, tanhE.")["ok"]
+        assert f6.run_tac("unfold F6, A6, sech, tanh_exp.")["ok"]
         assert f6.run_tac("auto_derive.")["ok"]
         steps.append(
             prove_with_tools(

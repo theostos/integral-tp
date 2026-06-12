@@ -2,11 +2,59 @@
 
 Hands-on Rocq workshop material for certified numerical analysis.
 
+## Participant Quick Link
+
+Open the workshop notebook in Colab:
+
+<a target="_blank" href="https://colab.research.google.com/github/theostos/integral-tp/blob/main/integral_workshop.ipynb">
+  <img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/>
+</a>
+
+The notebook expects the Rocq server and the LLM proxy to be running before the
+session starts.
+
+## Start The Servers
+
+Start the Rocq inference server:
+
+```bash
+docker run --rm -it --network host \
+  theostos/coq-tp:8.20 \
+  rocq-ml-server
+```
+
+Start the LLM proxy in another terminal, so participants never see the Mistral
+API key:
+
+```bash
+export MISTRAL_API_KEY="..."
+export MISTRAL_MODEL="mistral-medium-latest"
+export WORKSHOP_LLM_SERVER_CONCURRENCY=8
+export WORKSHOP_LLM_SERVER_MIN_INTERVAL_SECONDS=0.07
+integral-tp-llm-server --host 0.0.0.0 --port 8010
+```
+
+For a Colab test with ngrok, expose both ports:
+
+```bash
+ngrok http 5000
+ngrok http 8010
+```
+
+In the first notebook cell, set:
+
+```python
+os.environ["ROCQ_SERVER_HOST"] = "<rocq-ngrok-host-without-http>"
+os.environ["ROCQ_SERVER_PORT"] = "80"
+os.environ["WORKSHOP_LLM_SERVER_URL"] = "https://<llm-ngrok-host>"
+```
+
 ## Files
 
 - `integral.v`: compact reference development.
 - `workshop_api/`: small Python API over `rocq-ml-server` for adding Rocq elements, opening lemmas, running tactics, local retrieval hooks, and optional LLM calls.
 - `integral_workshop.ipynb`: 90-minute notebook decomposing `integral.v` step by step.
+- `img/`: small screenshots used by the Colab GPU setup section.
 - `scripts/build_retrieval_cache.py`: offline builder for the FAISS docstring retrieval cache.
 - `pyproject.toml`: package metadata and Colab extras used by the notebook setup.
 - `requirements-colab.txt`: one-line remote install spec for Colab.
@@ -49,7 +97,7 @@ notebooks at that host:
 
 ```bash
 docker run -d -p 5000:5000 \
-  theostos/coq-coquelicot:8.20-3.4.4 \
+  theostos/coq-tp:8.20 \
   rocq-ml-server --host 0.0.0.0 --port 5000 \
     --num-pet-server 16 --workers 16 --timeout 600
 ```
@@ -72,9 +120,9 @@ the workshop server instead:
 ```bash
 export MISTRAL_API_KEY="..."
 export MISTRAL_MODEL="mistral-medium-latest"
-export WORKSHOP_LLM_SERVER_CONCURRENCY=4
+export WORKSHOP_LLM_SERVER_CONCURRENCY=8
 export WORKSHOP_LLM_SERVER_WORKERS=16
-export WORKSHOP_LLM_SERVER_MIN_INTERVAL_SECONDS=0.25
+export WORKSHOP_LLM_SERVER_MIN_INTERVAL_SECONDS=0.07
 export WORKSHOP_LLM_SERVER_MAX_RETRIES=5
 export WORKSHOP_LLM_SERVER_QUEUE_SIZE=500
 integral-tp-llm-server --host 0.0.0.0 --port 8010
@@ -88,8 +136,8 @@ backs off and retries the job before reporting a failure to the notebook.
 Useful tuning variables:
 
 ```bash
-export WORKSHOP_LLM_SERVER_CONCURRENCY=4          # simultaneous Mistral calls
-export WORKSHOP_LLM_SERVER_MIN_INTERVAL_SECONDS=0.25
+export WORKSHOP_LLM_SERVER_CONCURRENCY=8          # simultaneous Mistral calls
+export WORKSHOP_LLM_SERVER_MIN_INTERVAL_SECONDS=0.07
 export WORKSHOP_LLM_SERVER_MAX_RETRIES=5
 export WORKSHOP_LLM_SERVER_RATE_LIMIT_BACKOFF_INITIAL_SECONDS=3
 export WORKSHOP_LLM_SERVER_BACKOFF_MAX_SECONDS=45

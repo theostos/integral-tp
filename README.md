@@ -4,9 +4,9 @@ Hands-on Rocq workshop material for certified numerical analysis.
 
 ## Files
 
-- `source.v`: compact reference development.
+- `integral.v`: compact reference development.
 - `workshop_api/`: small Python API over `rocq-ml-server` for adding Rocq elements, opening lemmas, running tactics, local retrieval hooks, and optional LLM calls.
-- `integral_workshop.ipynb`: 90-minute notebook decomposing `source.v` step by step.
+- `integral_workshop.ipynb`: 90-minute notebook decomposing `integral.v` step by step.
 - `scripts/build_retrieval_cache.py`: offline builder for the FAISS docstring retrieval cache.
 - `pyproject.toml`: package metadata and Colab extras used by the notebook setup.
 - `requirements-colab.txt`: one-line remote install spec for Colab.
@@ -57,12 +57,70 @@ docker run -d -p 5000:5000 \
 In the notebook, configure:
 
 ```python
-ROCQ_SERVER_HOST = "rocq-workshop.example.org"
-ROCQ_SERVER_PORT = 5000
+os.environ["ROCQ_SERVER_HOST"] = "rocq-workshop.example.org"
+os.environ["ROCQ_SERVER_PORT"] = "5000"
 ```
 
 For a larger group, run several server instances on different ports or
 machines and assign participants to endpoints.
+
+## LLM Proxy
+
+Do not put the Mistral API key in participant notebooks. Run the small proxy on
+the workshop server instead:
+
+```bash
+export MISTRAL_API_KEY="..."
+export MISTRAL_MODEL="mistral-medium-latest"
+export WORKSHOP_LLM_SERVER_CONCURRENCY=4
+export WORKSHOP_LLM_SERVER_WORKERS=16
+export WORKSHOP_LLM_SERVER_MIN_INTERVAL_SECONDS=0.25
+export WORKSHOP_LLM_SERVER_MAX_RETRIES=5
+export WORKSHOP_LLM_SERVER_QUEUE_SIZE=500
+integral-tp-llm-server --host 0.0.0.0 --port 8010
+```
+
+The proxy accepts participant requests immediately, puts them in an internal
+queue, and lets a small pool of workers call Mistral with global pacing. When
+Mistral returns a transient error such as `429 Rate limit exceeded`, the proxy
+backs off and retries the job before reporting a failure to the notebook.
+
+Useful tuning variables:
+
+```bash
+export WORKSHOP_LLM_SERVER_CONCURRENCY=4          # simultaneous Mistral calls
+export WORKSHOP_LLM_SERVER_MIN_INTERVAL_SECONDS=0.25
+export WORKSHOP_LLM_SERVER_MAX_RETRIES=5
+export WORKSHOP_LLM_SERVER_RATE_LIMIT_BACKOFF_INITIAL_SECONDS=3
+export WORKSHOP_LLM_SERVER_BACKOFF_MAX_SECONDS=45
+export WORKSHOP_LLM_SERVER_QUEUE_SIZE=500
+export WORKSHOP_LLM_SERVER_JOB_TTL_SECONDS=3600
+```
+
+Operational endpoints:
+
+```text
+GET  /health
+GET  /queue
+POST /jobs
+GET  /jobs/{job_id}
+POST /chat
+```
+
+`/chat` remains blocking for existing notebook code. The Python client uses
+`/jobs` by default when talking to the proxy, polls the job status, and prints
+queue position, retries, and final wait time when `verbose=True`. Set
+`WORKSHOP_LLM_SERVER_USE_JOBS=0` to force the old blocking `/chat` path.
+
+The notebook only needs the proxy URL:
+
+```python
+os.environ["WORKSHOP_LLM_SERVER_URL"] = "http://llm-workshop.example.org:8010"
+os.environ["MISTRAL_MODEL"] = "mistral-medium-latest"
+```
+
+Each `verbose=True` LLM call prints input tokens, output tokens, and estimated
+USD cost. The estimate uses the hard-coded `mistral-medium-latest` rates.
 
 ## Retrieval Cache
 

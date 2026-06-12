@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import re
 import textwrap
-from dataclasses import dataclass
+import os
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -63,6 +64,18 @@ def _clean_command(command: str) -> str:
     out = textwrap.dedent(command).strip()
     if not out:
         raise ValueError("Empty Rocq command.")
+    return out
+
+
+def _strip_code_fence(text: str) -> str:
+    out = textwrap.dedent(str(text)).strip()
+    if out.startswith("```"):
+        lines = out.splitlines()
+        if lines and lines[0].lstrip().startswith("```"):
+            lines = lines[1:]
+        if lines and lines[-1].strip().startswith("```"):
+            lines = lines[:-1]
+        out = "\n".join(lines).strip()
     return out
 
 
@@ -359,6 +372,20 @@ class RocqWorkshop:
             "goals": self.goals(lemma_name)["goals"],
         }
 
+    def reset_lemma(self, lemma_name: str) -> dict[str, Any]:
+        lemma = self.lemmas[lemma_name]
+        if lemma.completed:
+            raise ValueError(f"Lemma `{lemma_name}` is already completed.")
+        proof_state = self.client.run(self.global_state, lemma.header, timeout=self.timeout)
+        lemma.nodes = [StateNode(index=0, parent_index=None, command=None, state=proof_state)]
+        lemma.latest_index = 0
+        return {
+            "ok": True,
+            "lemma": lemma_name,
+            "latest_state_index": 0,
+            "goals": self.goals(lemma_name)["goals"],
+        }
+
     def refresh_open_lemmas(self, *, except_names: set[str] | None = None) -> list[dict[str, Any]]:
         except_names = except_names or set()
         refreshed: list[dict[str, Any]] = []
@@ -389,3 +416,165 @@ class RocqWorkshop:
                 if not lemma.completed:
                     blocks.append(lemma.source(close=False))
         return "\n\n".join(block.rstrip() for block in blocks if block.strip()) + "\n"
+
+
+@dataclass
+class TheoremSession:
+    """Notebook-facing handle for an open or completed Rocq theorem."""
+
+    document: "RocqDocument"
+    name: str
+    checkpoints: dict[str, int] = field(default_factory=dict)
+
+    @property
+    def _workshop(self) -> RocqWorkshop:
+        return self.document.workshop
+
+    @property
+    def lemma(self) -> LemmaSession:
+        return self._workshop.lemmas[self.name]
+
+    @property
+    def header(self) -> str:
+        return self.lemma.header
+
+    @property
+    def completed(self) -> bool:
+        return self.lemma.completed
+
+    def goals(self) -> list[str]:
+        return self._workshop.goals(self.name)["goals"]
+
+    def run_tac(self, tactic: str) -> dict[str, Any]:
+        return self._workshop.run_tac(self.name, tactic)
+
+    def run_script(self, script: str | Iterable[str]) -> list[dict[str, Any]]:
+        if isinstance(script, str):
+            from .llm import split_rocq_commands
+
+            steps = split_rocq_commands(script)
+        else:
+            steps = list(script)
+        return self._workshop.run_script(self.name, steps)
+
+    def checkpoint(self, name: str | None = None) -> str:
+        if name is None:
+            name = f"checkpoint_{len(self.checkpoints) + 1}"
+        self.checkpoints[name] = self.lemma.latest_index
+        return name
+
+    def reverse(self, checkpoint: str | int = 0) -> dict[str, Any]:
+        if self.completed:
+            raise ValueError(f"Cannot reverse completed theorem `{self.name}`.")
+        index = self.checkpoints[checkpoint] if isinstance(checkpoint, str) else checkpoint
+        self.lemma.node(index)
+        self.lemma.latest_index = index
+        return {
+            "ok": True,
+            "lemma": self.name,
+            "latest_state_index": index,
+            "goals": self.goals(),
+        }
+
+    def reset(self) -> dict[str, Any]:
+        self.checkpoints.clear()
+        return self._workshop.reset_lemma(self.name)
+
+    def qed(self) -> dict[str, Any]:
+        return self._workshop.complete_lemma(self.name)
+
+    def source(self, *, close: bool | None = None) -> str:
+        return self._workshop.lemma_source(self.name, close=close)
+
+    def proof_script(self) -> str:
+        return self._workshop.proof_script(self.name)
+
+    def as_retrieval_hit(self) -> dict[str, Any]:
+        return {
+            "uid": f"local:{self.name}",
+            "name": self.name,
+            "kind": "local_theorem",
+            "library": "Current document",
+            "source": "current Rocq session",
+            "statement": self.header,
+            "docstring": self.source(close=self.completed),
+            "content": self.source(close=self.completed),
+        }
+
+    def __str__(self) -> str:
+        info = self._workshop.goals(self.name)
+        status = "completed" if self.completed else f"{info['goal_count']} goal(s)"
+        parts = [f"{self.name}: {status}", self.header]
+        if not self.completed:
+            goals = info["goals"]
+            if goals:
+                parts.append("Goals:\n" + "\n\n".join(goals))
+            else:
+                parts.append("No remaining goals. Run `.qed()` to close the theorem.")
+        return "\n\n".join(parts)
+
+    __repr__ = __str__
+
+
+class RocqDocument:
+    """Notebook-friendly document API over :class:`RocqWorkshop`."""
+
+    def __init__(
+        self,
+        host: str | None = None,
+        port: int | None = None,
+        *,
+        timeout: float = 600.0,
+        connect: bool = True,
+    ):
+        host = (
+            host
+            or os.getenv("ROCQ_SERVER_HOST")
+            or os.getenv("ROCQ_ML_SERVER_HOST")
+            or "127.0.0.1"
+        )
+        port = port or int(
+            os.getenv("ROCQ_SERVER_PORT") or os.getenv("ROCQ_ML_SERVER_PORT") or "5000"
+        )
+        self.workshop = RocqWorkshop(host=host, port=port, timeout=timeout, connect=connect)
+
+    def close(self) -> None:
+        self.workshop.close()
+
+    def add_import(self, libname: str, source: str) -> dict[str, Any]:
+        return self.workshop.add_import(libname, source)
+
+    def open_scope(self, scope: str) -> dict[str, Any]:
+        return self.workshop.open_scope(scope)
+
+    def execute(self, command: str) -> dict[str, Any]:
+        return self.workshop.add_element(command)
+
+    def add_definition(self, command: str) -> dict[str, Any]:
+        return self.workshop.add_definition(command)
+
+    def add_theorem(self, header: str, *, name: str | None = None) -> TheoremSession:
+        header = _strip_code_fence(header)
+        result = self.workshop.add_lemma(header, name=name)
+        return TheoremSession(self, result["lemma"])
+
+    def add_artefact(self, artefact: str, *, name: str | None = None) -> TheoremSession:
+        header = _strip_code_fence(artefact)
+        if "Proof." in header:
+            header = header.split("Proof.", 1)[0].strip()
+        if name is not None and not LEMMA_HEADER_RE.search(header):
+            header = f"Lemma {name} :\n  {header}."
+        return self.add_theorem(header, name=name)
+
+    def source(self, *, include_open: bool = True) -> str:
+        return self.workshop.source(include_open=include_open)
+
+
+def new_document(
+    host: str | None = None,
+    port: int | None = None,
+    *,
+    timeout: float = 600.0,
+    connect: bool = True,
+) -> RocqDocument:
+    return RocqDocument(host=host, port=port, timeout=timeout, connect=connect)

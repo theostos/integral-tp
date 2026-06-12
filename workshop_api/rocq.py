@@ -6,6 +6,7 @@ import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Iterable
+from urllib.parse import urljoin
 
 import requests
 
@@ -52,6 +53,68 @@ except Exception as exc:  # pragma: no cover - exercised in notebooks.
         _IMPORT_ERROR = exc
 else:
     _IMPORT_ERROR = None
+
+
+if PytanqueExtended is not None:
+
+    class UrlPytanqueExtended(PytanqueExtended):  # type: ignore[misc, valid-type]
+        """HTTP Rocq client variant for path-prefixed HTTPS proxies.
+
+        The public `pytanque` HTTP client currently builds URLs from `(host, port)`
+        as `http://host:port/...`. That is fine for local Docker, but not for a
+        single ngrok endpoint routed as `https://host/rocq/...`.
+        """
+
+        def __init__(self, base_url: str, *, timeout_http: float | None = None):
+            super().__init__("127.0.0.1", 1)
+            self.base_url = base_url.rstrip("/") + "/"
+            self.timeout_http = timeout_http
+
+        def _headers(self) -> dict[str, str]:
+            return {"ngrok-skip-browser-warning": "true"}
+
+        def _url(self, endpoint: str) -> str:
+            return urljoin(self.base_url, endpoint.lstrip("/"))
+
+        def connect(self) -> None:
+            response = requests.get(
+                self._url("login"),
+                headers=self._headers(),
+                timeout=self.timeout_http,
+            )
+            response.raise_for_status()
+            self.session_id = response.json()["session_id"]
+
+        def _post_json(self, endpoint: str, payload: dict[str, Any]) -> Any:
+            response = requests.post(
+                self._url(endpoint),
+                json=payload,
+                headers=self._headers(),
+                timeout=self.timeout_http,
+            )
+            response.raise_for_status()
+            return response.json()
+
+        def _send_request_message(
+            self,
+            route_name: Any,
+            payload: Any,
+            timeout: float | None = None,
+        ) -> str:
+            payload["timeout"] = timeout
+            payload["route_name"] = route_name
+            payload["session_id"] = self.session_id
+            response = requests.post(
+                self._url("rpc"),
+                json=payload,
+                headers=self._headers(),
+                timeout=self.timeout_http,
+            )
+            response.raise_for_status()
+            return response.text
+
+else:
+    UrlPytanqueExtended = None  # type: ignore[assignment]
 
 
 LEMMA_HEADER_RE = re.compile(
@@ -163,18 +226,27 @@ class RocqWorkshop:
         *,
         timeout: float = 180.0,
         connect: bool = True,
+        server_url: str | None = None,
     ):
         if PytanqueExtended is None:
             raise RuntimeError(
                 "Could not import rocq_ml_toolbox or public pytanque. "
                 "Install `integral-tp[colab]` or install pytanque manually."
             ) from _IMPORT_ERROR
-        self.client = PytanqueExtended(host, port)
+        if server_url:
+            if UrlPytanqueExtended is None:
+                raise RuntimeError(
+                    "Could not create a URL-based Rocq client because pytanque is unavailable."
+                ) from _IMPORT_ERROR
+            self.client = UrlPytanqueExtended(server_url, timeout_http=timeout)
+        else:
+            self.client = PytanqueExtended(host, port)
         if connect:
             self.client.connect()
         self.timeout = timeout
         self.host = host
         self.port = port
+        self.server_url = server_url
         self.root_path = Path(self.client.tmp_file(content="")).resolve()
         self.root_state = self.client.get_root_state(str(self.root_path), timeout=timeout)
         self.global_state = self.root_state
@@ -526,7 +598,17 @@ class RocqDocument:
         *,
         timeout: float = 600.0,
         connect: bool = True,
+        server_url: str | None = None,
     ):
+        server_url = (
+            server_url
+            or os.getenv("ROCQ_SERVER_URL")
+            or os.getenv("ROCQ_ML_SERVER_URL")
+            or None
+        )
+        if server_url is None and host and "://" in host:
+            server_url = host
+            host = None
         host = (
             host
             or os.getenv("ROCQ_SERVER_HOST")
@@ -536,7 +618,13 @@ class RocqDocument:
         port = port or int(
             os.getenv("ROCQ_SERVER_PORT") or os.getenv("ROCQ_ML_SERVER_PORT") or "5000"
         )
-        self.workshop = RocqWorkshop(host=host, port=port, timeout=timeout, connect=connect)
+        self.workshop = RocqWorkshop(
+            host=host,
+            port=port,
+            timeout=timeout,
+            connect=connect,
+            server_url=server_url,
+        )
 
     def close(self) -> None:
         self.workshop.close()
@@ -576,5 +664,12 @@ def new_document(
     *,
     timeout: float = 600.0,
     connect: bool = True,
+    server_url: str | None = None,
 ) -> RocqDocument:
-    return RocqDocument(host=host, port=port, timeout=timeout, connect=connect)
+    return RocqDocument(
+        host=host,
+        port=port,
+        timeout=timeout,
+        connect=connect,
+        server_url=server_url,
+    )

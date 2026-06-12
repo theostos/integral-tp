@@ -34,19 +34,31 @@ export WORKSHOP_LLM_SERVER_MIN_INTERVAL_SECONDS=0.07
 integral-tp-llm-server --host 0.0.0.0 --port 8010
 ```
 
-For a Colab test with ngrok, expose both ports:
+For a Colab test on the free ngrok plan, expose one local reverse proxy and
+route paths to the two services:
+
+```caddyfile
+:8080 {
+  handle_path /llm/* {
+    reverse_proxy 127.0.0.1:8010
+  }
+
+  handle_path /rocq/* {
+    reverse_proxy 127.0.0.1:5000
+  }
+}
+```
 
 ```bash
-ngrok http 5000
-ngrok http 8010
+caddy run --config Caddyfile
+ngrok http 8080
 ```
 
 In the first notebook cell, set:
 
 ```python
-os.environ["ROCQ_SERVER_HOST"] = "<rocq-ngrok-host-without-http>"
-os.environ["ROCQ_SERVER_PORT"] = "80"
-os.environ["WORKSHOP_LLM_SERVER_URL"] = "https://<llm-ngrok-host>"
+os.environ["ROCQ_SERVER_URL"] = "https://<ngrok-host>/rocq"
+os.environ["WORKSHOP_LLM_SERVER_URL"] = "https://<ngrok-host>/llm"
 ```
 
 ## Files
@@ -109,6 +121,12 @@ os.environ["ROCQ_SERVER_HOST"] = "rocq-workshop.example.org"
 os.environ["ROCQ_SERVER_PORT"] = "5000"
 ```
 
+If the server is behind a path-routing proxy, use the URL form instead:
+
+```python
+os.environ["ROCQ_SERVER_URL"] = "https://workshop.example.org/rocq"
+```
+
 For a larger group, run several server instances on different ports or
 machines and assign participants to endpoints.
 
@@ -165,6 +183,12 @@ The notebook only needs the proxy URL:
 ```python
 os.environ["WORKSHOP_LLM_SERVER_URL"] = "http://llm-workshop.example.org:8010"
 os.environ["MISTRAL_MODEL"] = "mistral-medium-latest"
+```
+
+Behind the single ngrok/Caddy setup above, use:
+
+```python
+os.environ["WORKSHOP_LLM_SERVER_URL"] = "https://<ngrok-host>/llm"
 ```
 
 Each `verbose=True` LLM call prints input tokens, output tokens, and estimated

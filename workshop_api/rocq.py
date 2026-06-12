@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import re
 import textwrap
 import os
@@ -101,7 +102,7 @@ if PytanqueExtended is not None:
             payload: Any,
             timeout: float | None = None,
         ) -> str:
-            payload["timeout"] = timeout
+            payload["timeout"] = _rocq_timeout(timeout)
             payload["route_name"] = route_name
             payload["session_id"] = self.session_id
             response = requests.post(
@@ -128,6 +129,12 @@ def _clean_command(command: str) -> str:
     if not out:
         raise ValueError("Empty Rocq command.")
     return out
+
+
+def _rocq_timeout(timeout: float | int | None) -> int | None:
+    if timeout is None:
+        return None
+    return max(1, math.ceil(float(timeout)))
 
 
 def _strip_code_fence(text: str) -> str:
@@ -228,6 +235,8 @@ class RocqWorkshop:
         connect: bool = True,
         server_url: str | None = None,
     ):
+        rocq_timeout = _rocq_timeout(timeout)
+        http_timeout = None if timeout is None else float(timeout)
         if PytanqueExtended is None:
             raise RuntimeError(
                 "Could not import rocq_ml_toolbox or public pytanque. "
@@ -238,17 +247,17 @@ class RocqWorkshop:
                 raise RuntimeError(
                     "Could not create a URL-based Rocq client because pytanque is unavailable."
                 ) from _IMPORT_ERROR
-            self.client = UrlPytanqueExtended(server_url, timeout_http=timeout)
+            self.client = UrlPytanqueExtended(server_url, timeout_http=http_timeout)
         else:
             self.client = PytanqueExtended(host, port)
         if connect:
             self.client.connect()
-        self.timeout = timeout
+        self.timeout = rocq_timeout
         self.host = host
         self.port = port
         self.server_url = server_url
         self.root_path = Path(self.client.tmp_file(content="")).resolve()
-        self.root_state = self.client.get_root_state(str(self.root_path), timeout=timeout)
+        self.root_state = self.client.get_root_state(str(self.root_path), timeout=self.timeout)
         self.global_state = self.root_state
         self.elements: list[str] = []
         self.lemmas: dict[str, LemmaSession] = {}

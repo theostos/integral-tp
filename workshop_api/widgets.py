@@ -52,7 +52,7 @@ def _hit_html(hit: dict[str, Any]) -> str:
     if docstring:
         doc_html = (
             "<div class='rocq-docstring'>"
-            f"{html.escape(_shorten(docstring, limit=420))}"
+            f"{html.escape(_shorten(docstring, limit=1800))}"
             "</div>"
         )
 
@@ -76,6 +76,7 @@ def _style_html() -> str:
         pygments_css = ""
     return f"""
 <style>
+{pygments_css}
 .rocq-retrieval {{
   font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }}
@@ -85,6 +86,8 @@ def _style_html() -> str:
   padding: 8px 10px;
   margin: 0 0 8px 0;
   background: #ffffff;
+  width: 100%;
+  box-sizing: border-box;
 }}
 .rocq-hit-head {{
   display: flex;
@@ -107,19 +110,27 @@ def _style_html() -> str:
   border-radius: 4px;
   padding: 6px 8px;
   margin-top: 6px;
-  font-size: 12px;
+  font-size: 13px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }}
 .rocq-hit pre,
 .rocq-hit .highlight {{
   margin: 0;
-  overflow: auto;
+  overflow: visible;
   background: #f6f8fa;
   border-radius: 4px;
   padding: 8px;
-  font-size: 12px;
-  line-height: 1.4;
+  font-size: 13px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }}
-{pygments_css}
+.rocq-hit .highlight pre {{
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}}
 </style>
 """
 
@@ -220,8 +231,7 @@ class RetrievalExplorer:
         self._results_box = widgets.VBox(
             layout=widgets.Layout(
                 width="100%",
-                max_height="360px",
-                overflow="auto",
+                overflow="visible",
                 border="1px solid #d0d7de",
                 padding="6px",
             )
@@ -229,8 +239,7 @@ class RetrievalExplorer:
         self._selected_box = widgets.VBox(
             layout=widgets.Layout(
                 width="100%",
-                max_height="240px",
-                overflow="auto",
+                overflow="visible",
                 border="1px solid #d0d7de",
                 padding="6px",
             )
@@ -291,10 +300,14 @@ class RetrievalExplorer:
                 self.add(current)
 
             button.on_click(add_current)
+            card = widgets.HTML(
+                _hit_html(dict(hit)),
+                layout=widgets.Layout(width="100%", flex="1 1 auto"),
+            )
             rows.append(
                 widgets.HBox(
-                    [button, widgets.HTML(_hit_html(dict(hit)))],
-                    layout=widgets.Layout(align_items="flex-start"),
+                    [button, card],
+                    layout=widgets.Layout(width="100%", align_items="flex-start"),
                 )
             )
         self._results_box.children = tuple(rows) if rows else (widgets.HTML("<em>No hits.</em>"),)
@@ -319,10 +332,14 @@ class RetrievalExplorer:
                 self.remove(current_key)
 
             button.on_click(remove_current)
+            card = widgets.HTML(
+                _hit_html(dict(hit)),
+                layout=widgets.Layout(width="100%", flex="1 1 auto"),
+            )
             rows.append(
                 widgets.HBox(
-                    [button, widgets.HTML(_hit_html(dict(hit)))],
-                    layout=widgets.Layout(align_items="flex-start"),
+                    [button, card],
+                    layout=widgets.Layout(width="100%", align_items="flex-start"),
                 )
             )
         self._selected_box.children = tuple(rows) if rows else (widgets.HTML("<em>No selected items.</em>"),)

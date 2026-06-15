@@ -52,6 +52,10 @@ ROCQ_SYSTEM_PROMPT = textwrap.dedent(
     - Do not use Lean/SSReflect-style proof terms such as `by ...`,
       `norm_num`, or `have h : P by ...`; those are not available in this
       environment. Use ordinary Rocq tactic commands instead.
+    - Never use `norm_num`; it is not imported in this Rocq environment.
+    - Do not use `have`. In this workshop environment, named intermediate
+      facts should use ordinary Rocq tactics such as `assert`, and direct
+      proof steps are usually preferable.
     - Prefer short, robust scripts over clever one-liners.
     - Use retrieved facts and local lemmas when they are relevant, but do not
       force them if the current goal has a different shape.
@@ -73,6 +77,9 @@ ROCQ_SYSTEM_PROMPT = textwrap.dedent(
     - When using `replace` or a targeted rewrite, copy the left-hand side from
       the current goal carefully, including parentheses and unary minus syntax.
       Put the intended normalized expression on the right.
+    - In `replace A with B by proof`, the proof after `by` must be one tactic
+      expression. If it needs several commands, wrap them in parentheses, for
+      example `replace A with B by (rewrite some_lemma; ring).`
     - When a selected rewrite lemma has a recognizable left-hand syntactic
       pattern, transform the goal toward that pattern. Avoid replacing useful
       subexpressions by more expanded or divided arithmetic forms unless that
@@ -616,7 +623,7 @@ def _should_rollback_complexity_increase(
     after_goals: list[str],
 ) -> bool:
     cleaned = tactic.strip().lower()
-    if not cleaned.startswith(("replace ", "change ")):
+    if not cleaned.startswith("change "):
         return False
     before_size = sum(len(goal) for goal in before_goals)
     after_size = sum(len(goal) for goal in after_goals)
@@ -660,6 +667,12 @@ def _tactic_failure_guidance(tactic: str, out: dict[str, Any]) -> str:
     cleaned = tactic.strip().lower()
     error = str(out.get("error", ""))
     parts = [f"run_tac({tactic!r}) failed and was rolled back -> {out}"]
+    if cleaned.startswith("all:"):
+        parts.append(
+            "Guidance: `all:` sends the same tactic to every remaining goal. "
+            "If even one remaining goal has a different shape, avoid `all:` "
+            "and solve the focused goal first with the tactic that matches it."
+        )
     if cleaned.startswith("replace "):
         parts.append(
             "Guidance: `replace A with B by proof` asks Rocq to prove the "
@@ -736,6 +749,14 @@ def _tactic_success_guidance(tactic: str, out: dict[str, Any]) -> str:
             "goal is about an opaque local helper function, unfold that helper "
             "definition before rerunning automation."
         )
+    if cleaned.startswith(("split", "repeat split", "constructor")):
+        return (
+            "Guidance: this split created several goals. Work on the focused "
+            "goal first. Use `all:` only when every remaining goal visibly has "
+            "the same shape; otherwise solve the repeated side conditions one "
+            "by one and leave any different algebraic or semantic goal for a "
+            "matching tactic."
+        )
     if cleaned.startswith(("replace ", "change ")):
         return (
             "Guidance: if this transformation was meant to expose the left-hand "
@@ -762,7 +783,7 @@ def _try_safe_cleanup(
 ) -> list[dict[str, Any]]:
     """Try conservative arithmetic cleanups and keep only real progress."""
     outputs: list[dict[str, Any]] = []
-    cleanup_tactics = ("lra.", "nra.")
+    cleanup_tactics = ("lra.", "nra.", "field; nra.")
     made_progress = True
     rounds = 0
     while made_progress and rounds < 8:

@@ -112,7 +112,7 @@ def _style_html() -> str:
 .rocq-hit pre,
 .rocq-hit .highlight {{
   margin: 0;
-  overflow-x: auto;
+  overflow: auto;
   background: #f6f8fa;
   border-radius: 4px;
   padding: 8px;
@@ -217,11 +217,27 @@ class RetrievalExplorer:
         search_button = widgets.Button(description="Search", icon="search")
         clear_button = widgets.Button(description="Clear selection", icon="trash")
         self._selected_label = widgets.HTML()
-        self._results_box = widgets.VBox()
-        self._selected_box = widgets.VBox()
+        self._results_box = widgets.VBox(
+            layout=widgets.Layout(
+                width="100%",
+                max_height="360px",
+                overflow="auto",
+                border="1px solid #d0d7de",
+                padding="6px",
+            )
+        )
+        self._selected_box = widgets.VBox(
+            layout=widgets.Layout(
+                width="100%",
+                max_height="240px",
+                overflow="auto",
+                border="1px solid #d0d7de",
+                padding="6px",
+            )
+        )
         self._context_box = widgets.Textarea(
             description="Context",
-            layout=widgets.Layout(width="100%", height="180px"),
+            layout=widgets.Layout(width="100%", height="96px"),
         )
 
         def run_search(_: object = None) -> None:

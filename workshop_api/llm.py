@@ -930,7 +930,12 @@ class LLMUsage:
             input_tokens=_as_int(data.get("input_tokens", data.get("prompt_tokens"))),
             output_tokens=_as_int(data.get("output_tokens", data.get("completion_tokens"))),
             total_tokens=_as_int(data.get("total_tokens")),
-            cache_tokens=_as_int(data.get("cache_tokens", data.get("cached_tokens"))),
+            cache_tokens=_as_int(
+                data.get(
+                    "cache_tokens",
+                    data.get("cached_input_tokens", data.get("cached_tokens")),
+                )
+            ),
         )
         if data.get("total_cost_usd") is not None:
             try:
@@ -954,16 +959,22 @@ class LLMUsage:
 
     def to_dict(self) -> dict[str, Any]:
         return {
+            "model": self.model,
             "input_tokens": self.input_tokens,
             "output_tokens": self.output_tokens,
+            "total_tokens": self.total_tokens,
+            "cache_tokens": self.cache_tokens,
+            "cached_input_tokens": self.cache_tokens,
+            "uncached_input_tokens": self.uncached_input_tokens,
             "total_cost_usd": self.total_cost_usd,
         }
 
-    def summary(self) -> str:
-        return (
-            f"input={self.input_tokens}, output={self.output_tokens}, "
-            f"cost=${self.total_cost_usd:.6f}"
-        )
+    def summary(self, *, show_cache: bool = False) -> str:
+        parts = [f"input={self.input_tokens}", f"output={self.output_tokens}"]
+        if show_cache or self.cache_tokens:
+            parts.append(f"cached_input={self.cache_tokens}")
+        parts.append(f"cost=${self.total_cost_usd:.6f}")
+        return ", ".join(parts)
 
 
 @dataclass
@@ -1364,7 +1375,7 @@ class LLMClient:
                     return ChatResult(
                         text=str(status_data.get("text") or ""),
                         usage=LLMUsage.from_dict(status_data.get("usage")),
-                        raw_usage=status_data.get("usage"),
+                        raw_usage=status_data.get("raw_usage", status_data.get("usage")),
                         queue=queue_meta,
                     )
                 if status == "failed":

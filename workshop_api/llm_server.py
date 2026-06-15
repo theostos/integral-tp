@@ -31,6 +31,7 @@ class ChatRequest(BaseModel):
 class ChatResponse(BaseModel):
     text: str
     usage: dict[str, Any]
+    raw_usage: Any | None = None
     job_id: str | None = None
     queue: dict[str, Any] | None = None
 
@@ -55,6 +56,7 @@ class JobStatusResponse(BaseModel):
     last_error: str | None = None
     text: str | None = None
     usage: dict[str, Any] | None = None
+    raw_usage: Any | None = None
     queue: dict[str, Any]
 
 
@@ -114,6 +116,7 @@ class QueuedJob:
     last_error: str | None = None
     text: str | None = None
     usage: dict[str, Any] | None = None
+    raw_usage: Any | None = None
 
 
 class OutboundLimiter:
@@ -187,6 +190,7 @@ def _complete_once(request: ChatRequest) -> ChatResponse:
     return ChatResponse(
         text=result.text,
         usage=result.usage.to_dict(),
+        raw_usage=result.raw_usage,
     )
 
 
@@ -307,6 +311,7 @@ async def _status_response(job: QueuedJob) -> JobStatusResponse:
         last_error=job.last_error,
         text=job.text if job.status == "succeeded" else None,
         usage=job.usage if job.status == "succeeded" else None,
+        raw_usage=job.raw_usage if job.status == "succeeded" else None,
         queue=await _queue_snapshot(),
     )
 
@@ -378,6 +383,7 @@ async def _run_job(job: QueuedJob, *, worker_id: int) -> None:
             last_error=None,
             text=response.text,
             usage=response.usage,
+            raw_usage=response.raw_usage,
         )
         response.job_id = job.id
         response.queue = _job_queue_stats(job)

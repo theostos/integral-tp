@@ -1,4 +1,5 @@
 from .llm import LLMClient, LLMUsage, ProofResult, proof_prompt, split_rocq_commands
+from .helpers import expected_hit, set_hits, show_usage
 from .retrieval import (
     DEFAULT_EMBEDDING_MODEL,
     LocalFaissRetriever,
@@ -24,9 +25,12 @@ __all__ = [
     "StateNode",
     "TheoremSession",
     "download_retrieval_cache",
+    "expected_hit",
     "format_retrieval_hits",
     "new_document",
     "prepare_colab_retrieval_cache",
     "proof_prompt",
+    "set_hits",
+    "show_usage",
     "split_rocq_commands",
 ]

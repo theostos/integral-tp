@@ -26,14 +26,27 @@ except Exception as exc:  # pragma: no cover - depends on optional dependency ve
 else:
     _MISTRAL_IMPORT_ERROR = None
 
+try:
+    from openai import OpenAI
+except Exception as exc:  # pragma: no cover - depends on optional dependency.
+    OpenAI = None  # type: ignore[assignment]
+    _OPENAI_IMPORT_ERROR = exc
+else:
+    _OPENAI_IMPORT_ERROR = None
 
 DEFAULT_MISTRAL_MODEL = "mistral-medium-latest"
+DEFAULT_OPENROUTER_MODEL = "mistralai/mistral-medium-3-5"
+OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 MISTRAL_MEDIUM_INPUT_USD_PER_MILLION = 1.50
 MISTRAL_MEDIUM_OUTPUT_USD_PER_MILLION = 7.50
 MISTRAL_CACHED_INPUT_DISCOUNT = 0.10
 
 MODEL_PRICES_USD_PER_MILLION: dict[str, tuple[float, float]] = {
     "mistral-medium-latest": (
+        MISTRAL_MEDIUM_INPUT_USD_PER_MILLION,
+        MISTRAL_MEDIUM_OUTPUT_USD_PER_MILLION,
+    ),
+    "mistralai/mistral-medium-3-5": (
         MISTRAL_MEDIUM_INPUT_USD_PER_MILLION,
         MISTRAL_MEDIUM_OUTPUT_USD_PER_MILLION,
     ),
@@ -1047,9 +1060,11 @@ class ProofResult:
 
 @dataclass
 class LLMClient:
-    """Mistral-backed helper used by the workshop notebook."""
+    """LLM helper used by the workshop notebook and proxy server."""
 
     model: str = DEFAULT_MISTRAL_MODEL
+    provider: str = "mistral"
+    model_explicit: bool = False
     api_key: str | None = None
     server_url: str | None = None
     server_token: str | None = None
@@ -1060,6 +1075,9 @@ class LLMClient:
     max_retries: int = 2
     force_ipv4: bool = True
     prompt_cache_key: str | None = "integral-tp-workshop"
+    openrouter_base_url: str = OPENROUTER_BASE_URL
+    openrouter_site_url: str | None = None
+    openrouter_app_name: str | None = None
 
     @classmethod
     def from_env(cls, *, model: str | None = None) -> "LLMClient":
@@ -1072,6 +1090,11 @@ class LLMClient:
 
     @classmethod
     def _from_env(cls, *, model: str | None, server_url: str | None) -> "LLMClient":
+        provider = (
+            os.getenv("WORKSHOP_LLM_PROVIDER")
+            or os.getenv("LLM_PROVIDER")
+            or ("openrouter" if os.getenv("OPENROUTER_API_KEY") and not os.getenv("MISTRAL_API_KEY") else "mistral")
+        ).strip().lower()
         temperature = (
             os.getenv("MISTRAL_TEMPERATURE")
             or os.getenv("LLM_TEMPERATURE")
@@ -1084,19 +1107,41 @@ class LLMClient:
         force_ipv4 = os.getenv("MISTRAL_FORCE_IPV4") or os.getenv("LLM_FORCE_IPV4")
         timeout = os.getenv("MISTRAL_TIMEOUT") or os.getenv("LLM_TIMEOUT")
         prompt_cache_key = (
-            os.getenv("MISTRAL_PROMPT_CACHE_KEY")
-            or os.getenv("LLM_PROMPT_CACHE_KEY")
-            or "integral-tp-workshop"
+            (os.getenv("OPENROUTER_PROMPT_CACHE_KEY") or os.getenv("LLM_PROMPT_CACHE_KEY"))
+            if provider == "openrouter"
+            else (
+                os.getenv("MISTRAL_PROMPT_CACHE_KEY")
+                or os.getenv("LLM_PROMPT_CACHE_KEY")
+                or "integral-tp-workshop"
+            )
         )
-        return cls(
-            model=model
-            or os.getenv("MISTRAL_MODEL")
+        model_from_env = (
+            model
+            or (
+                os.getenv("OPENROUTER_MODEL")
+                if provider == "openrouter"
+                else os.getenv("MISTRAL_MODEL")
+            )
             or os.getenv("LLM_MODEL")
-            or DEFAULT_MISTRAL_MODEL,
-            api_key=os.getenv("MISTRAL_API_KEY") or os.getenv("LLM_API_KEY"),
+        )
+        default_model = DEFAULT_OPENROUTER_MODEL if provider == "openrouter" else DEFAULT_MISTRAL_MODEL
+        api_key = (
+            os.getenv("OPENROUTER_API_KEY")
+            if provider == "openrouter"
+            else os.getenv("MISTRAL_API_KEY")
+        ) or os.getenv("LLM_API_KEY")
+        return cls(
+            model=model_from_env or default_model,
+            provider=provider,
+            model_explicit=model_from_env is not None,
+            api_key=api_key,
             server_url=server_url,
             server_token=os.getenv("WORKSHOP_LLM_SERVER_TOKEN") or os.getenv("LLM_SERVER_TOKEN"),
-            reasoning_effort=os.getenv("MISTRAL_REASONING_EFFORT")
+            reasoning_effort=(
+                os.getenv("OPENROUTER_REASONING_EFFORT")
+                if provider == "openrouter"
+                else os.getenv("MISTRAL_REASONING_EFFORT")
+            )
             or os.getenv("LLM_REASONING_EFFORT")
             or None,
             temperature=float(temperature) if temperature is not None else 0.7,
@@ -1105,6 +1150,9 @@ class LLMClient:
             force_ipv4=_env_bool(force_ipv4, default=True),
             timeout=float(timeout) if timeout is not None else 300.0,
             prompt_cache_key=prompt_cache_key or None,
+            openrouter_base_url=os.getenv("OPENROUTER_BASE_URL") or OPENROUTER_BASE_URL,
+            openrouter_site_url=os.getenv("OPENROUTER_SITE_URL") or None,
+            openrouter_app_name=os.getenv("OPENROUTER_APP_NAME") or "integral-tp",
         )
 
     @property
@@ -1133,6 +1181,37 @@ class LLMClient:
                 ),
             )
         return Mistral(**kwargs)
+
+    def _openrouter_client(self) -> Any:
+        if OpenAI is None:
+            raise RuntimeError(
+                "Could not import the OpenAI SDK. Install `openai`."
+            ) from _OPENAI_IMPORT_ERROR
+        if not self.api_key:
+            raise RuntimeError(
+                "No OpenRouter API key configured. Set OPENROUTER_API_KEY or LLM_API_KEY."
+            )
+        headers: dict[str, str] = {}
+        if self.openrouter_site_url:
+            headers["HTTP-Referer"] = self.openrouter_site_url
+        if self.openrouter_app_name:
+            headers["X-OpenRouter-Title"] = self.openrouter_app_name
+        kwargs: dict[str, Any] = {
+            "api_key": self.api_key,
+            "base_url": self.openrouter_base_url,
+            "timeout": self.timeout,
+        }
+        if headers:
+            kwargs["default_headers"] = headers
+        if self.force_ipv4:
+            kwargs["http_client"] = httpx.Client(
+                timeout=self.timeout,
+                transport=httpx.HTTPTransport(
+                    local_address="0.0.0.0",
+                    retries=self.max_retries,
+                ),
+            )
+        return OpenAI(**kwargs)
 
     def chat(
         self,
@@ -1172,6 +1251,14 @@ class LLMClient:
                 on_event=on_event,
                 verbose=verbose,
             )
+        if self.provider == "openrouter":
+            return self._chat_with_openrouter(
+                system=system,
+                user=user,
+                temperature=temperature,
+                top_p=top_p,
+                max_tokens=max_tokens,
+            )
         return self._chat_with_mistral(
             system=system,
             user=user,
@@ -1208,6 +1295,32 @@ class LLMClient:
         if self.prompt_cache_key:
             kwargs["prompt_cache_key"] = self.prompt_cache_key
         kwargs["timeout_ms"] = int(self.timeout * 1000)
+        return kwargs
+
+    def _openai_chat_kwargs(
+        self,
+        *,
+        system: str,
+        user: str,
+        temperature: float | None,
+        top_p: float | None,
+        max_tokens: int,
+    ) -> dict[str, Any]:
+        kwargs = self._chat_kwargs(
+            system=system,
+            user=user,
+            temperature=temperature,
+            top_p=top_p,
+            max_tokens=max_tokens,
+        )
+        kwargs.pop("timeout_ms", None)
+        kwargs["extra_body"] = {}
+        if self.prompt_cache_key:
+            kwargs["extra_body"]["prompt_cache_key"] = self.prompt_cache_key
+        if self.reasoning_effort:
+            kwargs["extra_body"]["reasoning_effort"] = self.reasoning_effort
+        if not kwargs["extra_body"]:
+            kwargs.pop("extra_body")
         return kwargs
 
     def _chat_with_mistral(
@@ -1253,6 +1366,46 @@ class LLMClient:
         assert last_error is not None
         raise last_error
 
+    def _chat_with_openrouter(
+        self,
+        *,
+        system: str,
+        user: str,
+        temperature: float | None,
+        top_p: float | None,
+        max_tokens: int,
+    ) -> ChatResult:
+        kwargs = self._openai_chat_kwargs(
+            system=system,
+            user=user,
+            temperature=temperature,
+            top_p=top_p,
+            max_tokens=max_tokens,
+        )
+        last_error: Exception | None = None
+        for attempt in range(max(self.max_retries, 0) + 1):
+            client = self._openrouter_client()
+            try:
+                response = client.chat.completions.create(**kwargs)
+                model = str(getattr(response, "model", None) or self.model)
+                usage = LLMUsage.from_provider_usage(getattr(response, "usage", None), model=model)
+                return ChatResult(
+                    text=_content_to_text(response.choices[0].message.content),
+                    usage=usage,
+                    raw_usage=_plain_data(getattr(response, "usage", None)),
+                )
+            except Exception as exc:
+                last_error = exc
+                if attempt >= self.max_retries or not _is_transient_llm_error(exc):
+                    raise
+                time.sleep(min(8.0, 0.75 * (2**attempt)) + random.uniform(0.0, 0.25))
+            finally:
+                close = getattr(client, "close", None)
+                if callable(close):
+                    close()
+        assert last_error is not None
+        raise last_error
+
     def _chat_with_server(
         self,
         *,
@@ -1266,7 +1419,7 @@ class LLMClient:
     ) -> ChatResult:
         assert self.server_url is not None
         payload = {
-            "model": self.model,
+            "model": self.model if self.model_explicit else None,
             "system": system,
             "user": user,
             "temperature": self.temperature if temperature is None else temperature,

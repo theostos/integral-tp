@@ -14,7 +14,7 @@ from typing import Any
 from fastapi import FastAPI, Header, HTTPException
 from pydantic import BaseModel, Field
 
-from .llm import DEFAULT_MISTRAL_MODEL, LLMClient, _is_transient_llm_error
+from .llm import DEFAULT_MISTRAL_MODEL, DEFAULT_OPENROUTER_MODEL, LLMClient, _is_transient_llm_error
 
 
 class ChatRequest(BaseModel):
@@ -154,9 +154,20 @@ class OutboundLimiter:
 
 @app.get("/health")
 def health() -> dict[str, Any]:
+    provider = (
+        os.getenv("WORKSHOP_LLM_PROVIDER")
+        or os.getenv("LLM_PROVIDER")
+        or ("openrouter" if os.getenv("OPENROUTER_API_KEY") and not os.getenv("MISTRAL_API_KEY") else "mistral")
+    ).strip().lower()
+    model = (
+        (os.getenv("OPENROUTER_MODEL") if provider == "openrouter" else os.getenv("MISTRAL_MODEL"))
+        or os.getenv("LLM_MODEL")
+        or (DEFAULT_OPENROUTER_MODEL if provider == "openrouter" else DEFAULT_MISTRAL_MODEL)
+    )
     return {
         "ok": True,
-        "model": os.getenv("MISTRAL_MODEL") or os.getenv("LLM_MODEL") or DEFAULT_MISTRAL_MODEL,
+        "provider": provider,
+        "model": model,
         "max_workers": MAX_WORKERS,
         "max_concurrency": MAX_CONCURRENCY,
         "min_interval_seconds": MIN_INTERVAL_SECONDS,

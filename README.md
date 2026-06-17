@@ -23,14 +23,15 @@ docker run --rm -it --network host \
   rocq-ml-server
 ```
 
-Start the LLM proxy in another terminal, so participants never see the Mistral
-API key:
+Start the LLM proxy in another terminal, so participants never see the
+OpenRouter API key:
 
 ```bash
-export MISTRAL_API_KEY="..."
-export MISTRAL_MODEL="mistral-medium-latest"
-export WORKSHOP_LLM_SERVER_CONCURRENCY=8
-export WORKSHOP_LLM_SERVER_MIN_INTERVAL_SECONDS=0.07
+export WORKSHOP_LLM_PROVIDER="openrouter"
+export OPENROUTER_API_KEY="..."
+export OPENROUTER_MODEL="mistralai/mistral-medium-3-5"
+export WORKSHOP_LLM_SERVER_CONCURRENCY=2
+export WORKSHOP_LLM_SERVER_MIN_INTERVAL_SECONDS=1.0
 integral-tp-llm-server --host 0.0.0.0 --port 8010
 ```
 
@@ -132,35 +133,49 @@ machines and assign participants to endpoints.
 
 ## LLM Proxy
 
-Do not put the Mistral API key in participant notebooks. Run the small proxy on
-the workshop server instead:
+Do not put the OpenRouter API key in participant notebooks. Run the small proxy
+on the workshop server instead:
 
 ```bash
-export MISTRAL_API_KEY="..."
-export MISTRAL_MODEL="mistral-medium-latest"
-export WORKSHOP_LLM_SERVER_CONCURRENCY=8
-export WORKSHOP_LLM_SERVER_WORKERS=16
-export WORKSHOP_LLM_SERVER_MIN_INTERVAL_SECONDS=0.07
-export WORKSHOP_LLM_SERVER_MAX_RETRIES=5
+export WORKSHOP_LLM_PROVIDER="openrouter"
+export OPENROUTER_API_KEY="..."
+export OPENROUTER_MODEL="mistralai/mistral-medium-3-5"
+export WORKSHOP_LLM_SERVER_CONCURRENCY=2
+export WORKSHOP_LLM_SERVER_WORKERS=4
+export WORKSHOP_LLM_SERVER_MIN_INTERVAL_SECONDS=1.0
+export WORKSHOP_LLM_SERVER_MAX_RETRIES=8
 export WORKSHOP_LLM_SERVER_QUEUE_SIZE=500
 integral-tp-llm-server --host 0.0.0.0 --port 8010
 ```
 
 The proxy accepts participant requests immediately, puts them in an internal
-queue, and lets a small pool of workers call Mistral with global pacing. When
-Mistral returns a transient error such as `429 Rate limit exceeded`, the proxy
-backs off and retries the job before reporting a failure to the notebook.
+queue, and lets a small pool of workers call OpenRouter with global pacing.
+When the upstream provider returns a transient error such as `429 Rate limit
+exceeded`, the proxy backs off and retries the job before reporting a failure
+to the notebook.
+
+Create the OpenRouter key from <https://openrouter.ai/settings/keys>. Add
+credits or a payment method in the OpenRouter dashboard before the workshop,
+then store the key only on the proxy machine as `OPENROUTER_API_KEY`.
 
 Useful tuning variables:
 
 ```bash
-export WORKSHOP_LLM_SERVER_CONCURRENCY=8          # simultaneous Mistral calls
-export WORKSHOP_LLM_SERVER_MIN_INTERVAL_SECONDS=0.07
-export WORKSHOP_LLM_SERVER_MAX_RETRIES=5
-export WORKSHOP_LLM_SERVER_RATE_LIMIT_BACKOFF_INITIAL_SECONDS=3
-export WORKSHOP_LLM_SERVER_BACKOFF_MAX_SECONDS=45
+export WORKSHOP_LLM_SERVER_CONCURRENCY=2          # simultaneous upstream calls
+export WORKSHOP_LLM_SERVER_MIN_INTERVAL_SECONDS=1.0
+export WORKSHOP_LLM_SERVER_MAX_RETRIES=8
+export WORKSHOP_LLM_SERVER_RATE_LIMIT_BACKOFF_INITIAL_SECONDS=10
+export WORKSHOP_LLM_SERVER_BACKOFF_MAX_SECONDS=120
 export WORKSHOP_LLM_SERVER_QUEUE_SIZE=500
 export WORKSHOP_LLM_SERVER_JOB_TTL_SECONDS=3600
+```
+
+To use Mistral directly instead of OpenRouter, set:
+
+```bash
+export WORKSHOP_LLM_PROVIDER="mistral"
+export MISTRAL_API_KEY="..."
+export MISTRAL_MODEL="mistral-medium-latest"
 ```
 
 Operational endpoints:
@@ -182,7 +197,6 @@ The notebook only needs the proxy URL:
 
 ```python
 os.environ["WORKSHOP_LLM_SERVER_URL"] = "http://llm-workshop.example.org:8010"
-os.environ["MISTRAL_MODEL"] = "mistral-medium-latest"
 ```
 
 Behind the single ngrok/Caddy setup above, use:
@@ -192,7 +206,8 @@ os.environ["WORKSHOP_LLM_SERVER_URL"] = "https://<ngrok-host>/llm"
 ```
 
 Each `verbose=True` LLM call prints input tokens, output tokens, and estimated
-USD cost. The estimate uses the hard-coded `mistral-medium-latest` rates.
+USD cost. The estimate knows the current Mistral Medium 3.5 rates for both
+`mistral-medium-latest` and OpenRouter's `mistralai/mistral-medium-3-5`.
 
 ## Retrieval Cache
 

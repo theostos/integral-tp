@@ -17,7 +17,7 @@ def hit(
     statement: str,
     *,
     library: str = "Coquelicot",
-    kind: str = "start_theorem_proof",
+    kind: str = "theorem",
     docstring: str = "",
 ) -> dict[str, Any]:
     return {

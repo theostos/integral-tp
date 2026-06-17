@@ -13,6 +13,14 @@ import requests
 
 
 DEFAULT_EMBEDDING_MODEL = "Qwen/Qwen3-Embedding-4B"
+KIND_ALIASES = {
+    "start_theorem_proof": "theorem",
+}
+
+
+def normalize_kind_name(name: object) -> str:
+    key = str(name or "").strip().lower()
+    return KIND_ALIASES.get(key, key)
 
 
 def _normalize_library_name(name: str) -> str:
@@ -53,7 +61,7 @@ def _normalize_kinds(value: str | Sequence[str] | None) -> set[str] | None:
         for raw in str(item).split(","):
             raw = raw.strip().lower()
             if raw:
-                out.add(raw)
+                out.add(normalize_kind_name(raw))
     return out or None
 
 
@@ -72,7 +80,19 @@ def _kind_matches(item: dict[str, Any], kinds: set[str] | None) -> bool:
     kind = item.get("kind")
     if not isinstance(kind, str) or not kind.strip():
         return False
-    return kind.strip().lower() in kinds
+    return normalize_kind_name(kind) in kinds
+
+
+def _normalize_hit_kind(item: dict[str, Any]) -> dict[str, Any]:
+    kind = item.get("kind")
+    if not isinstance(kind, str):
+        return item
+    normalized = normalize_kind_name(kind)
+    if normalized == kind:
+        return item
+    out = dict(item)
+    out["kind"] = normalized
+    return out
 
 
 def _shorten(text: object, *, limit: int) -> str:
@@ -96,7 +116,7 @@ def format_retrieval_hits(
     lines: list[str] = []
     for index, hit in enumerate(hits, start=1):
         name = hit.get("name") or hit.get("uid") or "<unnamed>"
-        kind = hit.get("kind")
+        kind = normalize_kind_name(hit.get("kind"))
         library = hit.get("library")
         source = hit.get("source")
         score = hit.get("score")
@@ -320,7 +340,7 @@ class LocalFaissRetriever:
         for score, idx in zip(scores[0], ids[0], strict=False):
             if idx < 0:
                 continue
-            item = dict(self.metadata[int(idx)])
+            item = _normalize_hit_kind(dict(self.metadata[int(idx)]))
             if not _library_matches(item, libraries):
                 continue
             if not _kind_matches(item, kinds):
@@ -344,7 +364,7 @@ class RetrievalClient:
     fallback. Configure either `cache_dir` or `cache_url`; otherwise the first
     search raises a clear setup error. Pass `library="Stdlib"` or
     `library="Coquelicot"` to restrict matches to one source library. Pass
-    `kind="definition"` or `kind=["definition", "start_theorem_proof"]` to
+    `kind="definition"` or `kind=["definition", "theorem"]` to
     restrict matches by Rocq element kind.
     """
 

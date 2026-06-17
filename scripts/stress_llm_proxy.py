@@ -20,7 +20,7 @@ from scripts.test_workshop_api import build_analytic_doc, prove_by
 EXP_PLUS_HIT = {
     "uid": "stdlib:exp_plus",
     "name": "exp_plus",
-    "kind": "start_theorem_proof",
+    "kind": "theorem",
     "library": "Stdlib",
     "source": "Stdlib/Reals/Rtrigo_def.v",
     "statement": "Lemma exp_plus : forall x y : R, exp (x + y) = exp x * exp y.",

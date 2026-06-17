@@ -21,6 +21,9 @@ DEFAULT_INDEX_FACTORY = "Flat"
 DEFAULT_INDEX_FILE = "index.faiss"
 DEFAULT_EMBEDDINGS_FILE = "embeddings.npy"
 PROGRESS_FILE = "embedding_progress.json"
+KIND_ALIASES = {
+    "start_theorem_proof": "theorem",
+}
 
 
 def _utc_now() -> str:
@@ -60,6 +63,11 @@ def _normalize_library_name(name: str) -> str:
         "math-comp": "MathComp",
     }
     return aliases.get(key, name.strip())
+
+
+def _normalize_kind_name(name: object) -> str:
+    key = str(name or "").strip().lower()
+    return KIND_ALIASES.get(key, key)
 
 
 def _normalize_libraries(values: list[str] | None) -> set[str]:
@@ -108,7 +116,7 @@ def _entry_from_hf_toc_row(row: dict[str, Any]) -> dict[str, Any] | None:
         "uid": row.get("data_uid") or extra.get("uid"),
         "data_uid": row.get("data_uid"),
         "name": name,
-        "kind": row.get("kind"),
+        "kind": _normalize_kind_name(row.get("kind")),
         "range": [span_bp, span_ep] if span_bp is not None and span_ep is not None else None,
         "docstring": docstring,
         "content": content,

@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from .llm import LLMUsage
+from .retrieval import normalize_kind_name
 
 
 def expected_hit(
@@ -19,14 +20,19 @@ def expected_hit(
     def same(value: object, expected: str | None) -> bool:
         return expected is None or str(value).lower() == str(expected).lower()
 
+    def same_kind(value: object, expected: str | None) -> bool:
+        return expected is None or normalize_kind_name(value) == normalize_kind_name(expected)
+
     local_retriever = retriever._local_retriever()
     for item in local_retriever.metadata:
         if (
             item.get("name") == name
             and same(item.get("library"), library)
-            and same(item.get("kind"), kind)
+            and same_kind(item.get("kind"), kind)
         ):
             hit = dict(item)
+            if hit.get("kind") is not None:
+                hit["kind"] = normalize_kind_name(hit.get("kind"))
             hit.setdefault("score", 1.0)
             return hit
 

@@ -260,7 +260,7 @@ retriever = RetrievalClient.from_env(cache_dir=cache_path)
 hits = retriever.search(
     "RInt fundamental theorem derivative continuous interval integral",
     library="Coquelicot",
-    kind="start_theorem_proof",
+    kind="theorem",
     k=5,
 )
 print(format_retrieval_hits(hits))
@@ -268,7 +268,7 @@ print(format_retrieval_hits(hits))
 hits = retriever.search(
     "field_simplify ring exponential positivity exp_plus denominator nonzero",
     library="Stdlib",
-    kind=["ltac", "start_theorem_proof"],
+    kind=["ltac", "theorem"],
     k=5,
 )
 print(format_retrieval_hits(hits))

@@ -4,7 +4,7 @@ import html
 from dataclasses import dataclass, field
 from typing import Any, Sequence
 
-from .retrieval import format_retrieval_hits
+from .retrieval import format_retrieval_hits, normalize_kind_name
 
 
 def _hit_key(hit: dict[str, Any]) -> str:
@@ -35,7 +35,7 @@ def _highlight_rocq(text: object) -> str:
 
 def _hit_html(hit: dict[str, Any]) -> str:
     name = html.escape(str(hit.get("name") or hit.get("uid") or "<unnamed>"))
-    kind = html.escape(str(hit.get("kind") or "?"))
+    kind = html.escape(normalize_kind_name(hit.get("kind")) or "?")
     library = html.escape(str(hit.get("library") or "?"))
     source = html.escape(_shorten(hit.get("source"), limit=120))
     score = hit.get("score")
@@ -212,7 +212,7 @@ class RetrievalExplorer:
         )
         kind = widgets.Text(
             value=self.default_kind,
-            placeholder="definition,start_theorem_proof,ltac",
+            placeholder="definition,theorem,ltac",
             description="Kind",
             layout=widgets.Layout(width="360px"),
         )

@@ -164,6 +164,10 @@ When the upstream provider returns a transient error such as `429 Rate limit
 exceeded`, the proxy backs off and retries the job before reporting a failure
 to the notebook.
 
+Proof-generation calls and the proxy request schema both default to a
+20,000-token completion limit. The notebook deliberately relies on that shared
+default instead of repeating `max_tokens=20_000` in every exercise cell.
+
 Create the OpenRouter key from <https://openrouter.ai/settings/keys>. Add
 credits or a payment method in the OpenRouter dashboard before the workshop,
 then store the key only on the proxy machine as `OPENROUTER_API_KEY`.

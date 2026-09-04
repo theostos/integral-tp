@@ -68,6 +68,35 @@ class LLMUsagePricingTests(unittest.TestCase):
         self.assertAlmostEqual(usage.output_cost_usd, 7.5)
         self.assertAlmostEqual(usage.total_cost_usd, 8.6625)
 
+    def test_provider_reported_cost_takes_precedence(self) -> None:
+        usage = LLMUsage.from_provider_usage(
+            {
+                "prompt_tokens": 7_089,
+                "completion_tokens": 2_049,
+                "total_tokens": 9_138,
+                "cost": 0.00208785,
+            },
+            model="z-ai/glm-5.3-flash",
+        )
+
+        self.assertAlmostEqual(usage.total_cost_usd, 0.00208785)
+
+    def test_aggregate_preserves_provider_reported_costs(self) -> None:
+        first = LLMUsage.from_provider_usage(
+            {"prompt_tokens": 100, "completion_tokens": 200, "cost": 0.01},
+            model="z-ai/glm-5.3-flash",
+        )
+        second = LLMUsage.from_provider_usage(
+            {"prompt_tokens": 300, "completion_tokens": 400, "cost": 0.02},
+            model="z-ai/glm-5.3-flash",
+        )
+
+        aggregate = LLMUsage.aggregate([first, second])
+
+        self.assertEqual(aggregate.input_tokens, 400)
+        self.assertEqual(aggregate.output_tokens, 600)
+        self.assertAlmostEqual(aggregate.total_cost_usd, 0.03)
+
 
 if __name__ == "__main__":
     unittest.main()

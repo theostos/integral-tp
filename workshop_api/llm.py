@@ -957,13 +957,24 @@ class LLMUsage:
         cache_tokens = _as_int(_get_field(prompt_details, "cached_tokens"))
         if not cache_tokens:
             cache_tokens = _as_int(_get_field(usage, "num_cached_tokens"))
-        return cls.from_counts(
+        result = cls.from_counts(
             model=model,
             input_tokens=prompt_tokens,
             output_tokens=completion_tokens,
             total_tokens=total_tokens,
             cache_tokens=cache_tokens,
         )
+        # OpenRouter returns the amount actually charged in ``usage.cost``.
+        # Prefer it to the static price table because routing tiers, temporary
+        # discounts, and provider pricing can change independently of a
+        # deployed workshop package.
+        provider_cost = _get_field(usage, "cost")
+        if provider_cost is not None:
+            try:
+                result.total_cost_usd = max(float(provider_cost), 0.0)
+            except (TypeError, ValueError):
+                pass
+        return result
 
     @classmethod
     def from_dict(cls, data: dict[str, Any] | None) -> "LLMUsage":
@@ -992,13 +1003,16 @@ class LLMUsage:
         if not usages:
             return cls()
         model = usages[-1].model
-        return cls.from_counts(
+        result = cls.from_counts(
             model=model,
             input_tokens=sum(usage.input_tokens for usage in usages),
             output_tokens=sum(usage.output_tokens for usage in usages),
             total_tokens=sum(usage.total_tokens for usage in usages),
             cache_tokens=sum(usage.cache_tokens for usage in usages),
         )
+        # Preserve exact provider-reported costs through feedback/tool loops.
+        result.total_cost_usd = sum(usage.total_cost_usd for usage in usages)
+        return result
 
     def to_dict(self) -> dict[str, Any]:
         return {

@@ -1223,6 +1223,10 @@ class LLMClient:
             "api_key": self.api_key,
             "base_url": self.openrouter_base_url,
             "timeout": self.timeout,
+            # Keep retry ownership in LLMClient/the proxy. Otherwise the
+            # OpenAI-compatible SDK silently adds its own retries and a single
+            # nominal timeout can be exceeded several times over.
+            "max_retries": self.max_retries,
         }
         if headers:
             kwargs["default_headers"] = headers

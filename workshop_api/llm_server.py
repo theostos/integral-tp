@@ -12,8 +12,10 @@ from dataclasses import dataclass, field
 from typing import Any
 from urllib.parse import urljoin
 
+import httpx
 import requests
 from fastapi import FastAPI, Header, HTTPException
+from openai import AsyncOpenAI
 from pydantic import BaseModel, Field
 
 from .llm import (
@@ -21,7 +23,10 @@ from .llm import (
     DEFAULT_MISTRAL_MODEL,
     DEFAULT_OPENROUTER_MODEL,
     LLMClient,
+    LLMUsage,
+    _content_to_text,
     _is_transient_llm_error,
+    _plain_data,
 )
 from .retrieval import DEFAULT_OPENROUTER_EMBEDDING_MODEL
 
@@ -71,6 +76,7 @@ class JobStatusResponse(BaseModel):
     retry_count: int
     created_at: float
     started_at: float | None = None
+    deadline_at: float | None = None
     finished_at: float | None = None
     next_retry_at: float | None = None
     last_error: str | None = None
@@ -95,7 +101,7 @@ def _env_float(name: str, default: float) -> float:
 
 
 MAX_WORKERS = max(1, _env_int("WORKSHOP_LLM_SERVER_WORKERS", 16))
-MAX_CONCURRENCY = max(1, _env_int("WORKSHOP_LLM_SERVER_CONCURRENCY", 4))
+MAX_CONCURRENCY = max(1, _env_int("WORKSHOP_LLM_SERVER_CONCURRENCY", 16))
 MIN_INTERVAL_SECONDS = _env_float("WORKSHOP_LLM_SERVER_MIN_INTERVAL_SECONDS", 0.25)
 MAX_QUEUE_SIZE = max(1, _env_int("WORKSHOP_LLM_SERVER_QUEUE_SIZE", 500))
 MAX_JOB_RETRIES = max(
@@ -109,6 +115,10 @@ RATE_LIMIT_BACKOFF_INITIAL_SECONDS = _env_float(
 )
 BACKOFF_MAX_SECONDS = _env_float("WORKSHOP_LLM_SERVER_BACKOFF_MAX_SECONDS", 45.0)
 JOB_TTL_SECONDS = _env_float("WORKSHOP_LLM_SERVER_JOB_TTL_SECONDS", 3600.0)
+REQUEST_TIMEOUT_SECONDS = max(
+    1.0,
+    _env_float("WORKSHOP_LLM_SERVER_REQUEST_TIMEOUT_SECONDS", 180.0),
+)
 EMBEDDING_MAX_CONCURRENCY = max(
     1,
     _env_int("WORKSHOP_EMBEDDING_SERVER_CONCURRENCY", MAX_CONCURRENCY),
@@ -120,6 +130,13 @@ EMBEDDING_MIN_INTERVAL_SECONDS = _env_float(
 EMBEDDING_MAX_RETRIES = max(
     0,
     _env_int("WORKSHOP_EMBEDDING_SERVER_MAX_RETRIES", MAX_JOB_RETRIES),
+)
+EMBEDDING_REQUEST_TIMEOUT_SECONDS = max(
+    1.0,
+    _env_float(
+        "WORKSHOP_EMBEDDING_SERVER_REQUEST_TIMEOUT_SECONDS",
+        REQUEST_TIMEOUT_SECONDS,
+    ),
 )
 
 _executor = ThreadPoolExecutor(max_workers=MAX_WORKERS, thread_name_prefix="llm-proxy")
@@ -145,6 +162,7 @@ class QueuedJob:
     attempts: int = 0
     retry_count: int = 0
     started_at: float | None = None
+    deadline_at: float | None = None
     finished_at: float | None = None
     next_retry_at: float | None = None
     last_error: str | None = None
@@ -207,6 +225,7 @@ def health() -> dict[str, Any]:
         "min_interval_seconds": MIN_INTERVAL_SECONDS,
         "max_queue_size": MAX_QUEUE_SIZE,
         "max_job_retries": MAX_JOB_RETRIES,
+        "request_timeout_seconds": REQUEST_TIMEOUT_SECONDS,
         "embedding_model": (
             os.getenv("OPENROUTER_EMBEDDING_MODEL")
             or DEFAULT_OPENROUTER_EMBEDDING_MODEL
@@ -214,6 +233,7 @@ def health() -> dict[str, Any]:
         "embedding_max_concurrency": EMBEDDING_MAX_CONCURRENCY,
         "embedding_min_interval_seconds": EMBEDDING_MIN_INTERVAL_SECONDS,
         "embedding_max_retries": EMBEDDING_MAX_RETRIES,
+        "embedding_request_timeout_seconds": EMBEDDING_REQUEST_TIMEOUT_SECONDS,
     }
 
 
@@ -244,6 +264,92 @@ def _complete_once(request: ChatRequest) -> ChatResponse:
         usage=result.usage.to_dict(),
         raw_usage=result.raw_usage,
     )
+
+
+def _configured_provider() -> str:
+    return (
+        os.getenv("WORKSHOP_LLM_PROVIDER")
+        or os.getenv("LLM_PROVIDER")
+        or (
+            "openrouter"
+            if os.getenv("OPENROUTER_API_KEY") and not os.getenv("MISTRAL_API_KEY")
+            else "mistral"
+        )
+    ).strip().lower()
+
+
+async def _complete_openrouter_once(request: ChatRequest) -> ChatResponse:
+    """Run one cancellable OpenRouter request.
+
+    The synchronous SDK call cannot be stopped once dispatched to a thread.
+    Using the async transport lets the hard job deadline cancel and close the
+    network request, which genuinely releases proxy capacity.
+    """
+
+    config = LLMClient.direct_from_env(model=request.model)
+    config.max_retries = 0
+    config.timeout = min(config.timeout, REQUEST_TIMEOUT_SECONDS)
+    if request.reasoning_effort is not None:
+        config.reasoning_effort = request.reasoning_effort or None
+    if request.prompt_cache_key is not None:
+        config.prompt_cache_key = request.prompt_cache_key or None
+
+    kwargs = config._openai_chat_kwargs(
+        system=request.system,
+        user=request.user,
+        temperature=request.temperature,
+        top_p=request.top_p,
+        max_tokens=request.max_tokens,
+    )
+    headers: dict[str, str] = {}
+    if config.openrouter_site_url:
+        headers["HTTP-Referer"] = config.openrouter_site_url
+    if config.openrouter_app_name:
+        headers["X-OpenRouter-Title"] = config.openrouter_app_name
+
+    http_client: httpx.AsyncClient | None = None
+    client_kwargs: dict[str, Any] = {
+        "api_key": config.api_key,
+        "base_url": config.openrouter_base_url,
+        "timeout": config.timeout,
+        "max_retries": 0,
+    }
+    if headers:
+        client_kwargs["default_headers"] = headers
+    if config.force_ipv4:
+        http_client = httpx.AsyncClient(
+            timeout=config.timeout,
+            transport=httpx.AsyncHTTPTransport(
+                local_address="0.0.0.0",
+                retries=0,
+            ),
+        )
+        client_kwargs["http_client"] = http_client
+
+    client = AsyncOpenAI(**client_kwargs)
+    try:
+        response = await client.chat.completions.create(**kwargs)
+        model = str(getattr(response, "model", None) or config.model)
+        usage = LLMUsage.from_provider_usage(
+            getattr(response, "usage", None),
+            model=model,
+        )
+        return ChatResponse(
+            text=_content_to_text(response.choices[0].message.content),
+            usage=usage.to_dict(),
+            raw_usage=_plain_data(getattr(response, "usage", None)),
+        )
+    finally:
+        await client.close()
+        if http_client is not None and not http_client.is_closed:
+            await http_client.aclose()
+
+
+async def _complete_request_once(request: ChatRequest) -> ChatResponse:
+    if _configured_provider() == "openrouter":
+        return await _complete_openrouter_once(request)
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(_executor, _complete_once, request)
 
 
 def _configured_embedding_model() -> str:
@@ -358,7 +464,14 @@ async def _enqueue(request: ChatRequest) -> QueuedJob:
     if _queue.full():
         raise HTTPException(status_code=503, detail="LLM proxy queue is full.")
     loop = asyncio.get_running_loop()
-    job = QueuedJob(id=uuid.uuid4().hex, request=request, future=loop.create_future())
+    created_at = _now()
+    job = QueuedJob(
+        id=uuid.uuid4().hex,
+        request=request,
+        future=loop.create_future(),
+        created_at=created_at,
+        deadline_at=created_at + REQUEST_TIMEOUT_SECONDS,
+    )
     async with await _lock():
         _jobs[job.id] = job
         _waiting_ids.append(job.id)
@@ -399,6 +512,7 @@ async def _queue_snapshot() -> dict[str, Any]:
         "max_queue_size": MAX_QUEUE_SIZE,
         "max_concurrency": MAX_CONCURRENCY,
         "max_job_retries": MAX_JOB_RETRIES,
+        "request_timeout_seconds": REQUEST_TIMEOUT_SECONDS,
         **limiter_stats,
     }
 
@@ -412,6 +526,7 @@ async def _status_response(job: QueuedJob) -> JobStatusResponse:
         retry_count=job.retry_count,
         created_at=job.created_at,
         started_at=job.started_at,
+        deadline_at=job.deadline_at,
         finished_at=job.finished_at,
         next_retry_at=job.next_retry_at,
         last_error=job.last_error,
@@ -436,21 +551,67 @@ async def _cleanup_old_jobs() -> None:
                 _jobs.pop(job_id, None)
 
 
+def _request_timeout_error() -> str:
+    return (
+        "LLM request exceeded the hard server deadline of "
+        f"{REQUEST_TIMEOUT_SECONDS:g} seconds."
+    )
+
+
+async def _fail_timed_out_job(job: QueuedJob) -> None:
+    error = _request_timeout_error()
+    await _mark_job(
+        job,
+        status="failed",
+        finished_at=_now(),
+        last_error=error,
+        next_retry_at=None,
+    )
+    if not job.future.done():
+        job.future.set_exception(HTTPException(status_code=504, detail=error))
+
+
 async def _run_job(job: QueuedJob, *, worker_id: int) -> None:
     del worker_id
     loop = asyncio.get_running_loop()
     assert _limiter is not None
+    started_at = job.started_at or _now()
+    deadline_at = job.deadline_at or (job.created_at + REQUEST_TIMEOUT_SECONDS)
+    deadline = loop.time() + max(0.0, deadline_at - _now())
     await _mark_job(
         job,
         status="running",
-        started_at=job.started_at or _now(),
+        started_at=started_at,
+        deadline_at=deadline_at,
         next_retry_at=None,
     )
     while True:
-        await _limiter.wait_for_slot()
-        await _mark_job(job, status="running", attempts=job.attempts + 1, next_retry_at=None)
+        remaining_s = deadline - loop.time()
+        if remaining_s <= 0:
+            await _fail_timed_out_job(job)
+            return
         try:
-            response = await loop.run_in_executor(_executor, _complete_once, job.request)
+            await asyncio.wait_for(
+                _limiter.wait_for_slot(),
+                timeout=remaining_s,
+            )
+        except TimeoutError:
+            await _fail_timed_out_job(job)
+            return
+
+        await _mark_job(job, status="running", attempts=job.attempts + 1, next_retry_at=None)
+        remaining_s = deadline - loop.time()
+        if remaining_s <= 0:
+            await _fail_timed_out_job(job)
+            return
+        try:
+            response = await asyncio.wait_for(
+                _complete_request_once(job.request),
+                timeout=remaining_s,
+            )
+        except TimeoutError:
+            await _fail_timed_out_job(job)
+            return
         except Exception as exc:
             retryable = _is_transient_llm_error(exc)
             can_retry = retryable and job.retry_count < MAX_JOB_RETRIES
@@ -469,6 +630,10 @@ async def _run_job(job: QueuedJob, *, worker_id: int) -> None:
 
             retry_count = job.retry_count + 1
             delay_s = _retry_delay(exc, retry_count=retry_count)
+            remaining_s = deadline - loop.time()
+            if remaining_s <= delay_s:
+                await _fail_timed_out_job(job)
+                return
             if _is_rate_limit_error(exc):
                 await _limiter.backoff(delay_s)
             await _mark_job(
@@ -559,12 +724,44 @@ async def embeddings(
         raise HTTPException(status_code=503, detail="Embedding proxy is not ready.")
 
     loop = asyncio.get_running_loop()
+    deadline = loop.time() + EMBEDDING_REQUEST_TIMEOUT_SECONDS
     retry_count = 0
     while True:
-        await limiter.wait_for_slot()
+        remaining_s = deadline - loop.time()
+        if remaining_s <= 0:
+            raise HTTPException(
+                status_code=504,
+                detail=(
+                    "Embedding request exceeded the hard server deadline of "
+                    f"{EMBEDDING_REQUEST_TIMEOUT_SECONDS:g} seconds."
+                ),
+            )
         try:
+            await asyncio.wait_for(limiter.wait_for_slot(), timeout=remaining_s)
+        except TimeoutError as exc:
+            raise HTTPException(
+                status_code=504,
+                detail=(
+                    "Embedding request exceeded the hard server deadline of "
+                    f"{EMBEDDING_REQUEST_TIMEOUT_SECONDS:g} seconds."
+                ),
+            ) from exc
+
+        async def run_attempt() -> dict[str, Any]:
             async with semaphore:
                 return await loop.run_in_executor(_executor, _embed_once, request)
+
+        remaining_s = deadline - loop.time()
+        try:
+            return await asyncio.wait_for(run_attempt(), timeout=remaining_s)
+        except TimeoutError as exc:
+            raise HTTPException(
+                status_code=504,
+                detail=(
+                    "Embedding request exceeded the hard server deadline of "
+                    f"{EMBEDDING_REQUEST_TIMEOUT_SECONDS:g} seconds."
+                ),
+            ) from exc
         except HTTPException:
             raise
         except Exception as exc:
@@ -580,6 +777,15 @@ async def embeddings(
                 ) from exc
             retry_count += 1
             delay_s = _retry_delay(exc, retry_count=retry_count)
+            remaining_s = deadline - loop.time()
+            if remaining_s <= delay_s:
+                raise HTTPException(
+                    status_code=504,
+                    detail=(
+                        "Embedding request could not be retried within the hard server "
+                        f"deadline of {EMBEDDING_REQUEST_TIMEOUT_SECONDS:g} seconds."
+                    ),
+                ) from exc
             if _is_rate_limit_error(exc):
                 await limiter.backoff(delay_s)
             await asyncio.sleep(delay_s)

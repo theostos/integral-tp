@@ -31,12 +31,14 @@ export WORKSHOP_LLM_PROVIDER="openrouter"
 export OPENROUTER_API_KEY="..."
 export OPENROUTER_MODEL="z-ai/glm-5.3-flash"
 export OPENROUTER_EMBEDDING_MODEL="qwen/qwen3-embedding-4b"
-export WORKSHOP_LLM_SERVER_CONCURRENCY=8
-export WORKSHOP_LLM_SERVER_WORKERS=8
+export WORKSHOP_LLM_SERVER_CONCURRENCY=16
+export WORKSHOP_LLM_SERVER_WORKERS=16
 export WORKSHOP_LLM_SERVER_MIN_INTERVAL_SECONDS=0.1
-export WORKSHOP_EMBEDDING_SERVER_CONCURRENCY=8
+export WORKSHOP_LLM_SERVER_REQUEST_TIMEOUT_SECONDS=180
+export WORKSHOP_EMBEDDING_SERVER_CONCURRENCY=16
 export WORKSHOP_EMBEDDING_SERVER_MIN_INTERVAL_SECONDS=0.1
 export WORKSHOP_EMBEDDING_SERVER_MAX_RETRIES=8
+export WORKSHOP_EMBEDDING_SERVER_REQUEST_TIMEOUT_SECONDS=180
 integral-tp-llm-server --host 0.0.0.0 --port 8010
 ```
 
@@ -147,14 +149,16 @@ export WORKSHOP_LLM_PROVIDER="openrouter"
 export OPENROUTER_API_KEY="..."
 export OPENROUTER_MODEL="z-ai/glm-5.3-flash"
 export OPENROUTER_EMBEDDING_MODEL="qwen/qwen3-embedding-4b"
-export WORKSHOP_LLM_SERVER_CONCURRENCY=8
-export WORKSHOP_LLM_SERVER_WORKERS=8
+export WORKSHOP_LLM_SERVER_CONCURRENCY=16
+export WORKSHOP_LLM_SERVER_WORKERS=16
 export WORKSHOP_LLM_SERVER_MIN_INTERVAL_SECONDS=0.1
 export WORKSHOP_LLM_SERVER_MAX_RETRIES=8
 export WORKSHOP_LLM_SERVER_QUEUE_SIZE=500
-export WORKSHOP_EMBEDDING_SERVER_CONCURRENCY=8
+export WORKSHOP_LLM_SERVER_REQUEST_TIMEOUT_SECONDS=180
+export WORKSHOP_EMBEDDING_SERVER_CONCURRENCY=16
 export WORKSHOP_EMBEDDING_SERVER_MIN_INTERVAL_SECONDS=0.1
 export WORKSHOP_EMBEDDING_SERVER_MAX_RETRIES=8
+export WORKSHOP_EMBEDDING_SERVER_REQUEST_TIMEOUT_SECONDS=180
 integral-tp-llm-server --host 0.0.0.0 --port 8010
 ```
 
@@ -163,6 +167,11 @@ queue, and lets a small pool of workers call OpenRouter with global pacing.
 When the upstream provider returns a transient error such as `429 Rate limit
 exceeded`, the proxy backs off and retries the job before reporting a failure
 to the notebook.
+
+From the moment a generation is enqueued, its queue wait, upstream attempts,
+rate-limit waits, and retries share one hard 180-second deadline by default. A
+timed-out job is marked failed with HTTP 504 and releases its queue worker.
+Change the deadline with `WORKSHOP_LLM_SERVER_REQUEST_TIMEOUT_SECONDS`.
 
 Proof-generation calls and the proxy request schema both default to a
 20,000-token completion limit. The notebook deliberately relies on that shared
@@ -175,17 +184,19 @@ then store the key only on the proxy machine as `OPENROUTER_API_KEY`.
 Useful tuning variables:
 
 ```bash
-export WORKSHOP_LLM_SERVER_CONCURRENCY=8          # simultaneous upstream calls
-export WORKSHOP_LLM_SERVER_WORKERS=8
+export WORKSHOP_LLM_SERVER_CONCURRENCY=16         # simultaneous upstream calls
+export WORKSHOP_LLM_SERVER_WORKERS=16
 export WORKSHOP_LLM_SERVER_MIN_INTERVAL_SECONDS=0.1
 export WORKSHOP_LLM_SERVER_MAX_RETRIES=8
 export WORKSHOP_LLM_SERVER_RATE_LIMIT_BACKOFF_INITIAL_SECONDS=10
 export WORKSHOP_LLM_SERVER_BACKOFF_MAX_SECONDS=120
 export WORKSHOP_LLM_SERVER_QUEUE_SIZE=500
 export WORKSHOP_LLM_SERVER_JOB_TTL_SECONDS=3600
-export WORKSHOP_EMBEDDING_SERVER_CONCURRENCY=8
+export WORKSHOP_LLM_SERVER_REQUEST_TIMEOUT_SECONDS=180
+export WORKSHOP_EMBEDDING_SERVER_CONCURRENCY=16
 export WORKSHOP_EMBEDDING_SERVER_MIN_INTERVAL_SECONDS=0.1
 export WORKSHOP_EMBEDDING_SERVER_MAX_RETRIES=8
+export WORKSHOP_EMBEDDING_SERVER_REQUEST_TIMEOUT_SECONDS=180
 ```
 
 To use Mistral directly instead of OpenRouter, set:

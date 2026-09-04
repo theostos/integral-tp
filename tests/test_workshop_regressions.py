@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import sys
+import time
 import types
 from pathlib import Path
 from types import SimpleNamespace
@@ -16,6 +18,50 @@ from workshop_api.retrieval import (
 )
 from workshop_api.rocq import RocqDocument, RocqWorkshop
 from workshop_api.widgets import RetrievalExplorer
+
+
+def test_llm_hard_timeout_fails_job_and_cancels_upstream(monkeypatch):
+    cancelled = asyncio.Event()
+
+    async def stuck_completion(_request):
+        try:
+            await asyncio.sleep(60)
+        except asyncio.CancelledError:
+            cancelled.set()
+            raise
+
+    async def scenario():
+        loop = asyncio.get_running_loop()
+        created_at = time.time()
+        job = llm_server.QueuedJob(
+            id="stuck-job",
+            request=llm_server.ChatRequest(system="system", user="user"),
+            future=loop.create_future(),
+            created_at=created_at,
+            deadline_at=created_at + 0.03,
+        )
+        started = time.perf_counter()
+        await llm_server._run_job(job, worker_id=0)
+        elapsed = time.perf_counter() - started
+        failure = job.future.exception()
+
+        assert elapsed < 1.0
+        assert cancelled.is_set()
+        assert job.status == "failed"
+        assert job.finished_at is not None
+        assert job.deadline_at is not None
+        assert "hard server deadline" in (job.last_error or "")
+        assert isinstance(failure, llm_server.HTTPException)
+        assert failure.status_code == 504
+
+    monkeypatch.setattr(llm_server, "REQUEST_TIMEOUT_SECONDS", 0.03)
+    monkeypatch.setattr(
+        llm_server,
+        "_limiter",
+        llm_server.OutboundLimiter(min_interval_seconds=0),
+    )
+    monkeypatch.setattr(llm_server, "_complete_request_once", stuck_completion)
+    asyncio.run(scenario())
 
 
 def test_notebook_uses_glm_medium_and_relies_on_20k_proof_default():

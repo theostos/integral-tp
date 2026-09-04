@@ -26,6 +26,19 @@ class LLMClientDefaultsTests(unittest.TestCase):
         self.assertEqual(DEFAULT_OPENROUTER_MODEL, "z-ai/glm-5.3-flash")
         self.assertEqual(client.model, DEFAULT_OPENROUTER_MODEL)
 
+    def test_openrouter_sdk_does_not_add_hidden_retries(self) -> None:
+        client = LLMClient(
+            model="z-ai/glm-5.3-flash",
+            provider="openrouter",
+            api_key="test-key",
+            max_retries=0,
+            force_ipv4=False,
+        )
+        with patch("workshop_api.llm.OpenAI") as constructor:
+            client._openrouter_client()
+
+        self.assertEqual(constructor.call_args.kwargs["max_retries"], 0)
+
     def test_proof_and_proxy_defaults_allow_20k_output_tokens(self) -> None:
         self.assertEqual(DEFAULT_LLM_MAX_TOKENS, 20_000)
         self.assertEqual(

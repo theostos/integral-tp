@@ -64,7 +64,7 @@ def test_llm_hard_timeout_fails_job_and_cancels_upstream(monkeypatch):
     asyncio.run(scenario())
 
 
-def test_notebook_uses_glm_medium_and_relies_on_20k_proof_default():
+def test_notebook_uses_glm_low_and_relies_on_20k_proof_default():
     notebook_path = Path(__file__).resolve().parents[1] / "integral_workshop.ipynb"
     notebook = json.loads(notebook_path.read_text(encoding="utf-8"))
     code = "\n".join(
@@ -75,8 +75,10 @@ def test_notebook_uses_glm_medium_and_relies_on_20k_proof_default():
 
     assert 'os.environ["WORKSHOP_LLM_PROVIDER"] = "openrouter"' in code
     assert 'os.environ["OPENROUTER_MODEL"] = "z-ai/glm-5.3-flash"' in code
-    assert 'os.environ["OPENROUTER_REASONING_EFFORT"] = "medium"' in code
+    assert 'os.environ["OPENROUTER_REASONING_EFFORT"] = "low"' in code
     assert "integral-tp[colab]" in code
+    assert '"ipywidgets==7.7.1"' in code
+    assert "colab_output.enable_custom_widget_manager()" in code
     assert "global.prd.ga.run.brev.nvidia.com:34463" in code
     assert "global.prd.ga.run.brev.nvidia.com:61944" in code
     assert 'os.environ["WORKSHOP_LLM_SERVER_TOKEN"] = WORKSHOP_TOKEN' in code

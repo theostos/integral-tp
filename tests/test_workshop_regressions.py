@@ -76,6 +76,13 @@ def test_notebook_uses_glm_medium_and_relies_on_20k_proof_default():
     assert 'os.environ["WORKSHOP_LLM_PROVIDER"] = "openrouter"' in code
     assert 'os.environ["OPENROUTER_MODEL"] = "z-ai/glm-5.3-flash"' in code
     assert 'os.environ["OPENROUTER_REASONING_EFFORT"] = "medium"' in code
+    assert "integral-tp[colab]" in code
+    assert "global.prd.ga.run.brev.nvidia.com:34463" in code
+    assert "global.prd.ga.run.brev.nvidia.com:61944" in code
+    assert 'os.environ["WORKSHOP_LLM_SERVER_TOKEN"] = WORKSHOP_TOKEN' in code
+    assert 'os.environ["WORKSHOP_EMBEDDING_SERVER_TOKEN"] = WORKSHOP_TOKEN' in code
+    assert "theostos/integral-tp-retrieval-cache" in code
+    assert "sentence-transformers" not in code
     assert "max_tokens=" not in code
     assert "assert result_direct" not in code
     assert "assert result_feedback" not in code
@@ -128,6 +135,7 @@ def test_remote_embedding_client_uses_proxy_and_preserves_input_order(monkeypatc
 
 def test_retrieval_client_reuses_llm_proxy_for_embeddings(monkeypatch):
     monkeypatch.delenv("WORKSHOP_EMBEDDING_SERVER_URL", raising=False)
+    monkeypatch.delenv("WORKSHOP_EMBEDDING_SERVER_TOKEN", raising=False)
     monkeypatch.setenv("WORKSHOP_LLM_SERVER_URL", "https://workshop.example/llm")
     monkeypatch.setenv("WORKSHOP_LLM_SERVER_TOKEN", "participant-token")
 
